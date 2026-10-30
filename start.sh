@@ -158,8 +158,12 @@ check_listen="$bind:$port"
 if [[ "$bind" == *:* ]]; then check_listen="[$bind]:$port"; fi
 # Runs as the same unprivileged user with the same mounts. This catches invalid
 # binds, origins, certificates and key permissions before stopping the live app.
-if ! "${compose[@]}" run --rm --no-deps rmm check "${settings[@]}" --listen "$check_listen" --data-dir /tmp/rmm-check; then
+if ! check_output=$("${compose[@]}" run --rm --no-deps rmm check "${settings[@]}" --listen "$check_listen" --data-dir /tmp/rmm-check 2>&1); then
+  printf '%s\n' "$check_output" >&2
   if ! $discovered; then die 'Configuration check failed; the existing server was not stopped.'; fi
+  if [[ "$check_output" == *'open /certs/tree/'* && "$check_output" == *'permission denied'* ]]; then
+    die 'The existing Certbot certificate is unreadable by container UID 65532. Give that user read access to the certificate/key, or copy them to a protected directory and use --cert-dir. The existing server was not stopped.'
+  fi
   printf 'The discovered certificate is not usable; checking built-in ACME configuration instead.\n'
   manual=false; discovered=false; email="$requested_email"
   settings=(--origin "$origin" --domain "$domain" --acme-email "$email" --acme-directory "$directory")
@@ -178,8 +182,32 @@ if ! $manual && ! $http_explicit; then
 fi
 "${compose[@]}" stop rmm
 setup_output=$("${compose[@]}" run --rm --no-deps rmm bootstrap --data-dir /data --if-needed --show-token)
+launch_time=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
 "${compose[@]}" up -d --no-build
 container=$("${compose[@]}" ps -q rmm)
+[[ -n "$container" ]] || die 'Docker Compose did not return a running container. Check docker compose ps and logs.'
+ready=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if ! recent_logs=$(docker logs --since "$launch_time" "$container" 2>&1); then
+    printf '%s\n' "$recent_logs" >&2
+    die 'Unable to read the server startup logs.'
+  fi
+  if [[ "$recent_logs" == *'operator console listening'* ]]; then ready=true; break; fi
+  if [[ "$recent_logs" == *'ERROR server stopped'* ]]; then
+    printf '%s\n' "$recent_logs" >&2
+    die 'The server stopped during startup. Fix the logged error, then rerun start.sh.'
+  fi
+  status=$(docker inspect -f '{{.State.Status}}' "$container")
+  if [[ "$status" != running && "$status" != restarting ]]; then
+    printf '%s\n' "$recent_logs" >&2
+    die "The server container is $status. Check its logs and rerun start.sh."
+  fi
+  sleep 2
+done
+if ! $ready; then
+  printf '%s\n' "$recent_logs" >&2
+  die 'The server did not become ready within two minutes. Check certificate challenge routing and container logs.'
+fi
 printf '\n%s\n\nAdmin console: %s/admin\nFamily help page: %s/\n' "$setup_output" "$origin" "$origin"
 printf 'Container: %s\nView logs: docker logs --tail=50 %s\n' "$container" "$container"
 if $discovered; then printf 'Using the existing certificate from %s/live/%s/.\n' "$certbot_dir" "$domain"; fi
