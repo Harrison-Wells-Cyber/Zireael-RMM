@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operator console · Zireael-RMM</title><link rel="icon" type="image/png" href="/assets/swallow.png"><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/app.css"><script src="/assets/agent-desktop.js" defer></script><script src="/assets/app.js" defer></script><script src="/assets/support.js" defer></script></head>
+<body>
+<header><a class="brand" href="/admin"><span class="brand-mark" aria-hidden="true"><img src="/assets/swallow.png" alt=""></span><span class="brand-name">Zireael<span class="brand-suffix">-RMM</span></span></a><span class="badge">Private support console</span><button id="logout" class="quiet" hidden>Sign out</button></header>
+<main>
+<section id="auth" class="auth" hidden>
+  <p class="eyebrow">YOUR SUPPORT DESK</p>
+  <h1>Help is one<br>connection away.</h1>
+  <p class="intro">Sign in with your passkey to manage your support devices.</p>
+  <div class="card signin">
+    <h2 id="auth-title">Welcome back</h2>
+    <p id="auth-description">Use your security key, fingerprint, or device PIN.</p>
+    <label id="setup-label" hidden>Setup token<input id="setup-token" type="password" autocomplete="off" spellcheck="false" maxlength="128"></label>
+	<label id="login-name-label">Admin name<input id="login-name" autocomplete="username" spellcheck="false" maxlength="80" value="Owner"></label>
+    <button id="signin">Sign in with a passkey</button>
+  </div>
+</section>
+<section id="dashboard" class="app-shell" hidden>
+  <nav class="sidebar" aria-label="Console sections">
+    <div class="sidebar-title">WORKSPACE</div>
+    <button id="nav-agents" class="nav-item" aria-current="page">◉ <span>Agents</span></button>
+    <button id="nav-users" class="nav-item">◇ <span>Users</span></button>
+    <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span> Private console</div>
+  </nav>
+  <div class="workspace">
+    <section id="page-agents" class="console-page">
+      <p class="eyebrow">YOUR DEVICES</p><h1>Connected agents</h1>
+      <p class="intro">Choose a device to view its desktop, run PowerShell, or transfer files.</p>
+      <div class="overview-strip"><span id="online-count">0 online</span><span id="pending-count">0 awaiting approval</span><span id="total-count">0 devices</span></div>
+  <article class="card activity"><div class="section-heading"><div><span class="card-label">DEVICES</span><h2>All agents</h2></div><button id="refresh-devices" class="quiet">Refresh</button></div><p id="device-note">Click an online agent to open its tools. New default installs appear here for approval.</p><ul id="devices"></ul></article>
+      <div class="setup-grid"><article class="card"><span class="card-label">DEFAULT INSTALL</span><h2>One command for everyone</h2><p>Share the public home page. The default command stays the same and installs for the signed-in Windows user. New devices need your approval and the pairing code shown on their PC.</p><a class="text-link" href="/" target="_blank" rel="noopener noreferrer">Open family instructions ↗</a></article>
+    <article class="card"><span class="card-label">CONNECT A DEVICE</span><h2>Send a link. Start helping.</h2><p id="package-status">Checking the Windows package…</p><label>Device name<input id="device-name" maxlength="128" placeholder="Family laptop" autocomplete="off"></label><label>Availability<select id="device-mode"><option value="user">When the user is signed in (default)</option><option value="service">Whenever Windows is on — administrator install</option><option value="temporary">Only for this support session</option></select></label><p id="mode-help">Installs for the current user and starts at sign-in. No elevation prompt.</p><button id="create-invite" class="secondary">Create support link</button></article></div>
+  <article id="installer" class="card activity" hidden><span class="card-label">COPY AND SEND</span><h2>Their instructions, ready to go</h2><p>Send this personal link to your family member. It opens a simple page that walks them through opening PowerShell and copying their command.</p><p id="invite-expiry"></p><label>Personal support link<input id="support-link" readonly spellcheck="false"></label><div class="toolbar"><button id="copy-link">Copy support link</button><a id="preview-link" class="text-link" target="_blank" rel="noopener noreferrer">Preview instructions ↗</a></div><details><summary>Or send the PowerShell command directly</summary><p>Send the full command through a trusted channel. Download verification and installation happen automatically.</p><textarea id="install-command" readonly rows="5" aria-label="PowerShell installation command" spellcheck="false"></textarea><button id="copy-command" class="secondary">Copy command</button></details></article>
+    </section>
+    <section id="page-detail" class="console-page" hidden>
+      <button id="back-agents" class="back-button">← All agents</button>
+  <section id="support" class="card activity">
+    <div class="section-heading"><div><span class="card-label">SUPPORT</span><h2 id="support-name"></h2></div><button id="close-support" class="quiet">Close tools</button></div>
+    <p id="support-privilege"></p>
+    <div class="tabs" role="group" aria-label="Support tools"><button id="tab-desktop" class="secondary" aria-pressed="true">Remote desktop</button><button id="tab-command" class="secondary" aria-pressed="false">PowerShell</button><button id="tab-files" class="secondary" aria-pressed="false">Files</button></div>
+    <section id="panel-desktop">
+      <div class="toolbar"><button id="desktop-connect">Connect desktop</button><button id="desktop-disconnect" class="quiet">Disconnect desktop</button><label>Monitor<select id="desktop-monitor"><option value="0">Default</option></select></label><button id="desktop-refresh" class="quiet">Refresh image</button></div>
+      <p id="desktop-status" role="status">Click Connect desktop to begin. Click the image to send keyboard input; click outside it to release.</p>
+      <div id="desktop-scroll"><canvas id="desktop-canvas" tabindex="0" width="960" height="540" aria-label="Remote desktop"></canvas></div>
+    </section>
+    <section id="panel-command" hidden>
+      <label>PowerShell script<textarea id="command-script" rows="6" spellcheck="false" placeholder="Get-ComputerInfo | Select-Object WindowsProductName, CsName"></textarea></label>
+      <div class="toolbar"><label>Timeout (seconds)<input id="command-timeout" type="number" min="1" max="600" value="60"></label><button id="command-run">Run script</button><button id="command-cancel" class="quiet">Cancel</button></div>
+      <pre id="command-output" tabindex="0" aria-label="Command output"></pre><p id="command-status" role="status"></p>
+    </section>
+    <section id="panel-files" hidden>
+      <p>Use a complete local path on the Windows device, for example C:\Users\Alex\Downloads\report.txt. Uploads create a new file; an existing file is never overwritten.</p>
+      <label>Remote file path<input id="file-path" placeholder="C:\Users\Alex\Downloads\report.txt" spellcheck="false"></label>
+      <div class="toolbar"><label>File to upload<input id="file-upload" type="file"></label><button id="file-send">Upload</button><button id="file-get" class="secondary">Download</button><button id="file-cancel" class="quiet">Cancel transfer</button></div>
+      <p id="file-status" role="status"></p>
+    </section>
+  </section>
+    </section>
+    <section id="page-users" class="console-page" hidden>
+      <p class="eyebrow">CONSOLE ACCESS</p><h1>Users &amp; passkeys</h1>
+      <p class="intro">Manage the people who can sign in to this support console.</p>
+      <div class="grid"><article class="card"><span class="card-label">YOUR SIGN IN</span><h2>Passkeys</h2><p id="key-count"></p><p>Add a second passkey so you can still sign in if you lose your primary device.</p><button id="add-key" class="secondary">Add a passkey</button></article>
+      <article class="card"><span class="card-label">ACCESS POLICY</span><h2>Individual accounts</h2><p>Each admin has a separate passkey and sessions. Revoking access ends their active sessions and tools.</p></article></div>
+  <article class="card activity"><span class="card-label">ADMINISTRATORS</span><h2>People with console access</h2><p>Each administrator uses their own passkey and account. An invitation expires after 15 minutes and can be used once.</p><ul id="admins"></ul><label>New admin name<input id="admin-name" maxlength="80" autocomplete="off" placeholder="Alex"></label><button id="create-admin-invite" class="secondary">Invite an admin</button><div id="admin-invitation" hidden><label>Private invitation link<input id="admin-invite-link" readonly spellcheck="false"></label><button id="copy-admin-invite" class="secondary">Copy invitation link</button></div></article>  <article class="card activity"><span class="card-label">RECENT ACTIVITY</span><h2>Console access</h2><ul id="events"></ul></article>
+    </section>
+  </div>
+</section>
+<p id="message" role="status" aria-live="polite"></p>
+</main><footer>Zireael-RMM · Preview build · <a class="text-link" href="/">Family instructions</a></footer>
+</body></html>

@@ -1,0 +1,52 @@
+:root {
+  /* Shared Zireael-RMM palette and semantic tokens. */
+  --deep-forest: #172a29;
+  --pine: #213936;
+  --river-slate: #29454e;
+  --lake-blue: #618b9a;
+  --sage: #93ad98;
+  --moss: #789b76;
+  --walnut: #ae8c71;
+  --parchment: #e9e4d5;
+  --mist: #b7cbc5;
+  --deep-terminal: #102021;
+  --forest-border: #36534c;
+  --soft-amber: #c5a17e;
+  --muted-terracotta: #c47f73;
+  --pale-river: #a1bfc2;
+
+  --background: var(--deep-forest);
+  --surface: var(--pine);
+  --surface-raised: var(--river-slate);
+  --surface-inset: var(--deep-terminal);
+  --text: var(--parchment);
+  --text-muted: var(--mist);
+  --text-subtle: var(--pale-river);
+  --border: var(--forest-border);
+  --accent: var(--sage);
+  --accent-hover: #acc1ad;
+  --link: var(--pale-river);
+  --focus: var(--lake-blue);
+  --success: var(--moss);
+  --warning: var(--soft-amber);
+  --error: var(--muted-terracotta);
+  --danger-border: #70524b;
+  --danger-text: #e7ada2;
+  --danger-hover: #533b37;
+  --shadow-color: #091b1a26;
+
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--background);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+::selection { background: var(--lake-blue); color: var(--deep-terminal); }
+a { color: var(--link); }
+button, input, select, textarea { font: inherit; }
+:is(a, button, input, select, textarea, summary, canvas):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}

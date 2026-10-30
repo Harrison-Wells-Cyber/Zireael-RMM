@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Get connected · Zireael-RMM</title>
+  <link rel="icon" type="image/png" href="/assets/swallow.png">
+  <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="/assets/help.css">
+  <script src="/assets/help.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/assets/swallow.png" alt=""></span><span class="brand-name">Zireael<span class="brand-suffix">-RMM</span></span></a>
+    <a class="admin-link" href="/admin">Operator sign in <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section class="welcome" aria-labelledby="page-title">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> A LITTLE HELP, CLOSE AT HAND</p>
+      <h1 id="page-title">Let’s get you<br>connected.</h1>
+      <p class="intro">Three quick steps, then your helper can approve your computer and take it from there.</p>
+      <span id="platform" class="platform">For Windows PCs</span>
+    </section>
+
+    <div id="link-notice" class="notice" role="status">Your support command is loading.</div>
+    <noscript><p class="notice">Turn on JavaScript in your browser to display your support command.</p></noscript>
+
+    <section class="steps" aria-label="Connect your computer">
+      <article class="step">
+        <span class="step-number" aria-hidden="true">1</span>
+        <div class="step-content">
+          <h2>Open PowerShell</h2>
+          <p id="open-instructions">Click <strong>Start</strong>, type <strong>PowerShell</strong>, then open <strong>Windows PowerShell</strong>.</p>
+          <p id="privilege-note" class="small">A normal window is all you need.</p>
+        </div>
+      </article>
+      <article class="step command-step">
+        <span class="step-number" aria-hidden="true">2</span>
+        <div class="step-content">
+          <div class="step-heading"><h2>Copy your command</h2><span class="small">One copy. One paste.</span></div>
+          <p>Use the button below to copy the whole command.</p>
+          <label class="sr-only" for="help-command">Your PowerShell command</label>
+          <textarea id="help-command" rows="3" readonly spellcheck="false" placeholder="Your default command is loading."></textarea>
+          <div class="copy-row"><button id="copy-help-command" disabled>Copy command <span aria-hidden="true">↗</span></button><span id="link-expiry" class="small"></span></div>
+          <p id="copy-status" class="small" role="status" aria-live="polite"></p>
+        </div>
+      </article>
+      <article class="step">
+        <span class="step-number" aria-hidden="true">3</span>
+        <div class="step-content">
+          <h2>Paste, press Enter, and you’re set</h2>
+          <p>In PowerShell, <strong>right-click to paste</strong>, then press <kbd>Enter</kbd>. Wait for the download and installation to finish. Tell your helper the pairing code shown in PowerShell so they can approve your computer.</p>
+          <p class="small">If you see an error, share it with your helper.</p>
+        </div>
+      </article>
+    </section>
+
+    <aside class="access-note">
+      <span class="note-symbol" aria-hidden="true">i</span>
+      <div><h2>What happens next?</h2><p>Running this command lets your helper view and control your computer, run support commands, and transfer files.</p><p id="availability">The support app starts when you sign in to Windows, so your helper can reconnect while you’re signed in and online.</p></div>
+    </aside>
+  </main>
+  <footer>Zireael-RMM <span aria-hidden="true">·</span> Personal support, made simple.</footer>
+</body>
+</html>
