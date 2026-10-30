@@ -5,7 +5,7 @@ COPY third_party/scs ./third_party/scs
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/server ./cmd/server \
-    && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /out/agent.exe ./cmd/agent \
+    && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags=-H=windowsgui -o /out/agent.exe ./cmd/agent \
     && mkdir -p /out/rootfs/data \
     && chmod 700 /out/rootfs/data \
     && chown 65532:65532 /out/rootfs/data

@@ -195,8 +195,8 @@ func install(args []string) error {
 			}
 		}
 		child := exec.Command(executable, "run")
-		// A visible console provides local status and an ordinary close control.
-		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
+		// The user-mode agent runs in the background after installation and sign-in.
+		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 		if err = child.Start(); err != nil {
 			if *mode == "user" {
 				_ = removeStartup(executable)

@@ -90,5 +90,42 @@ func Command(in agent.Invite, digest string) (string, error) {
 	if in.Mode == "service" {
 		elevation = "if (-not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
 	}
-	return "& { $ErrorActionPreference='Stop'; $elevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); " + elevation + "$base=if ($elevated) { [Environment]::GetFolderPath('ProgramFiles') } else { [IO.Path]::GetTempPath() }; [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $d=Join-Path $base ('ZireaelRMM-'+[Guid]::NewGuid().ToString('N')); [IO.Directory]::CreateDirectory($d) | Out-Null; if ($elevated) { $acl=New-Object Security.AccessControl.DirectorySecurity; $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'); Set-Acl -LiteralPath $d -AclObject $acl }; $f=Join-Path $d 'ZireaelRMM.exe'; try { Invoke-WebRequest -UseBasicParsing -Uri " + quote(in.Server+"/agent/download") + " -OutFile $f; if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ne " + quote(digest) + ") { throw 'Agent verification failed' }; " + quote(config) + " | & $f install --mode " + quote(in.Mode) + "; if ($LASTEXITCODE -ne 0) { throw 'Agent installation failed' } } finally { Remove-Item -LiteralPath $d -Recurse -Force } }", nil
+	return strings.Join([]string{
+		"& { $ErrorActionPreference='Stop';",
+		"$elevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);",
+		elevation,
+		"$base=if ($elevated) { [Environment]::GetFolderPath('ProgramFiles') } else { [IO.Path]::GetTempPath() };",
+		"[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;",
+		"$d=Join-Path $base ('ZireaelRMM-'+[Guid]::NewGuid().ToString('N'));",
+		"[IO.Directory]::CreateDirectory($d) | Out-Null;",
+		"if ($elevated) { $acl=New-Object Security.AccessControl.DirectorySecurity; $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'); Set-Acl -LiteralPath $d -AclObject $acl };",
+		"$f=Join-Path $d 'ZireaelRMM.exe';",
+		"try {",
+		"Invoke-WebRequest -UseBasicParsing -Uri " + quote(in.Server+"/agent/download") + " -OutFile $f;",
+		"if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ne " + quote(digest) + ") { throw 'Agent verification failed' };",
+		"$p=New-Object System.Diagnostics.Process;",
+		"$p.StartInfo.FileName=$f; $p.StartInfo.Arguments=" + quote("install --mode "+in.Mode) + ";",
+		"$p.StartInfo.UseShellExecute=$false; $p.StartInfo.CreateNoWindow=$true;",
+		"$p.StartInfo.RedirectStandardInput=$true; $p.StartInfo.RedirectStandardOutput=$true; $p.StartInfo.RedirectStandardError=$true;",
+		"try {",
+		"if (-not $p.Start()) { throw 'Could not launch agent installer' };",
+		"$outTask=$p.StandardOutput.ReadToEndAsync(); $errTask=$p.StandardError.ReadToEndAsync();",
+		"$p.StandardInput.WriteLine(" + quote(config) + "); $p.StandardInput.Close();",
+		"$p.WaitForExit();",
+		"$out=$outTask.GetAwaiter().GetResult(); $err=$errTask.GetAwaiter().GetResult();",
+		"if ($out) { Write-Host ($out.TrimEnd()) };",
+		"if ($p.ExitCode -ne 0) { throw ('Agent installation failed: ' + $err.Trim()) };",
+		"if ($err) { Write-Warning ($err.TrimEnd()) }",
+		"} finally { $p.Dispose() }",
+		"} finally {",
+		"$removed=$false;",
+		"for ($i=0; $i -lt 10; $i++) {",
+		"if (-not (Test-Path -LiteralPath $d)) { $removed=$true; break };",
+		"try { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop; $removed=$true; break }",
+		"catch { Start-Sleep -Milliseconds 250 }",
+		"};",
+		"if (-not $removed) { Write-Warning ('Temporary installer remains at ' + $d) }",
+		"}",
+		"}",
+	}, " "), nil
 }
