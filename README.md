@@ -1,6 +1,6 @@
 # Zireael-RMM
 
-A self-hosted remote support tool for family and personal use. The Linux server provides a passkey-protected web console; a single Windows agent executable provides remote desktop, PowerShell, and file transfers. **Preview:** PowerShell and file transfers have passed an initial Windows test. The remote desktop replacement is currently in design.
+A self-hosted remote support tool for family and personal use. The Linux server provides a passkey-protected web console; a single Windows agent executable provides remote desktop, PowerShell, and file transfers. **Preview:** PowerShell and file transfers have passed an initial Windows test. Remote desktop now uses a built-in Go engine with a pop-out/fullscreen browser viewer.
 
 ## Run the server
 
@@ -22,10 +22,12 @@ Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the 
 
 For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command. The PowerShell package option is coming soon.
 
+**Updating an existing test agent:** uninstall it using its installed `ZireaelRMM.exe uninstall`, then install again from the homepage (use elevated PowerShell for a service installation). Approve the new device and revoke the old entry. Keep your server data volume; admin accounts and other devices remain available. The old MeshAgent desktop engine is no longer bundled.
+
 The command shown in a browser must itself be trusted: TLS inspection that can alter the page can alter the command. The agent's encrypted inner connection protects subsequent agent traffic through TLS inspection, but cannot authenticate a replaced installer command. Admin browser traffic also requires a trusted HTTPS path.
 
 ## Status and licensing
 
-The server, web console, agent transport, and Windows cross-builds have been checked locally. The first Windows test found desktop capture problems; the [replacement architecture](REMOTE_DESKTOP_ARCHITECTURE.md) describes the planned Go implementation. Agent certificates currently expire after one year without automatic renewal. Binaries are not code-signed and there is no automatic updater or account recovery beyond a second passkey and protected backups.
+The server, web console, agent transport, and Windows cross-builds have been checked locally. The Go desktop replacement uses DXGI capture with GDI fallback, monitor/session selection, keyboard/mouse input, and view-only mode. Its transport and viewer have been exercised with synthetic frames; actual Windows capture/input testing is the next step. See the [architecture and implementation notes](REMOTE_DESKTOP_ARCHITECTURE.md). Agent certificates currently expire after one year without automatic renewal. Binaries are not code-signed and there is no automatic updater or account recovery beyond a second passkey and protected backups.
 
-Original project code is [CC0](LICENSE). Bundled desktop components and dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and the license/provenance files in `third_party/`.
+Original project code is [CC0](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and the license/provenance files in `third_party/`.

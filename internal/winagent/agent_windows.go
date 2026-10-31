@@ -42,6 +42,8 @@ func Run(args []string) error {
 		command, args = args[0], args[1:]
 	}
 	switch command {
+	case "desktop-worker":
+		return desktopWorker(args)
 	case "install":
 		return install(args)
 	case "run":
@@ -152,9 +154,6 @@ func install(args []string) error {
 	}
 	executable := filepath.Join(dir, installedExecutableName)
 	if err = writeNew(executable, data); err != nil {
-		return err
-	}
-	if err = installDesktop(dir); err != nil {
 		return err
 	}
 	key, csr, err := identity.NewDeviceKey()

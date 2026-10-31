@@ -1,12 +1,10 @@
 'use strict';
-let selectedDevice=null, commandAbort=null, fileAbort=null, desktopSocket=null, desktopViewer=null;
-// Matching MeshCentral viewer uses this byte encoder for Unicode input.
-function ShortToStr(x){return String.fromCharCode((x>>8)&255,x&255);}
+let selectedDevice=null, commandAbort=null, fileAbort=null, desktopViewer=null;
 function openSupport(device){
   closeSupport(); selectedDevice=device;
   $('support-name').textContent=device.name;
   $('close-support').textContent=device.mode==='temporary'?'End support session':'Close tools';
-  $('support-privilege').textContent=device.mode==='service' ? 'Commands run as LocalSystem. Desktop uses the active console session.' : `Commands and files use ${device.details?.username || 'the agent user'}’s ${device.details?.elevated?'elevated':'standard user'} permissions.`;
+  $('support-privilege').textContent=device.mode==='service' ? 'Commands run as LocalSystem. Choose an interactive session for desktop.' : `Commands and files use ${device.details?.username || 'the agent user'}’s ${device.details?.elevated?'elevated':'standard user'} permissions.`;
   $('support').hidden=false;showPage('detail');
 }
 function closeSupport(){
@@ -83,40 +81,7 @@ async function transfer(kind){
   finally{if(destination)await destination.abort().catch(()=>{});controller.abort();if(fileAbort===controller)fileAbort=null;}
 }
 $('file-send').onclick=()=>transfer('upload');$('file-get').onclick=()=>transfer('download');
-function disconnectDesktop(){
-  const socket=desktopSocket;desktopSocket=null;
-  if(desktopViewer){desktopViewer.handleReleaseKeys();desktopViewer.xxStateChange(0);desktopViewer=null;}
-  if(socket)socket.close();$('desktop-status').textContent='Desktop disconnected.';
-}
-$('desktop-disconnect').onclick=disconnectDesktop;
-$('desktop-connect').onclick=()=>{
-  if(desktopSocket)return;
-  try{
-    const url=new URL(endpoint('desktop'),location.href);url.protocol='wss:';
-    const socket=desktopSocket=new WebSocket(url,'rmm-desktop-v1');socket.binaryType='arraybuffer';
-    const viewer=desktopViewer=CreateAgentRemoteDesktop($('desktop-canvas'),$('desktop-scroll'));viewer.Start();viewer.ScreenWidth=0;viewer.ScreenHeight=0;
-    viewer.parent={send(data){if(socket.readyState!==WebSocket.OPEN)return;if(socket.bufferedAmount>1048576){disconnectDesktop();return;}socket.send(typeof data==='string'?Uint8Array.from(data,c=>c.charCodeAt(0)):data);},setConsoleMessage(text){$('desktop-status').textContent=text;}};
-    viewer.onMessage=text=>{$('desktop-status').textContent=text;};
-    viewer.onDisplayinfo=(_,displays,selected)=>{$('desktop-monitor').replaceChildren(...Object.entries(displays).map(([id,name])=>{const option=new Option(name,id);option.selected=String(selected)===id;return option;}));};
-    socket.onopen=()=>{viewer.xxStateChange(3);viewer.GrabMouseInput();viewer.SendCompressionLevel(1,60,1024,100);viewer.SendUnPause();viewer.SendRefresh();$('desktop-status').textContent='Connected. Click the desktop to type.';};
-    socket.onmessage=event=>{
-      if(typeof event.data==='string'){$('desktop-status').textContent=event.data;return;}
-      const data=new Uint8Array(event.data);if(data.length<4||data.length>8388608){disconnectDesktop();return;}
-      const cmd=(data[0]<<8)|data[1];
-      if(cmd===7){const w=(data[4]<<8)|data[5],h=(data[6]<<8)|data[7];if(data.length!==8||!w||!h||w>16384||h>16384||w*h>67108864){disconnectDesktop();return;}}
-      if(viewer.tilesReceived-viewer.TilesDrawn>256){disconnectDesktop();$('desktop-status').textContent='Viewer could not keep up; reconnect to continue.';return;}
-      viewer.ProcessBinaryCommand(cmd,data.length,data);
-    };
-    socket.onerror=()=>{$('desktop-status').textContent='Desktop connection failed. Refresh devices or sign in again.';};
-    socket.onclose=event=>{if(desktopSocket===socket){disconnectDesktop();$('desktop-status').textContent=event.reason || 'Desktop connection ended.';}};
-    $('desktop-status').textContent='Starting desktop…';
-  }catch(error){disconnectDesktop();$('desktop-status').textContent=error.message;}
-};
-$('desktop-canvas').addEventListener('focus',()=>desktopViewer?.GrabKeyInput());
-$('desktop-canvas').addEventListener('blur',()=>{desktopViewer?.handleReleaseKeys();desktopViewer?.UnGrabKeyInput();});
-$('desktop-canvas').addEventListener('mousedown',()=>$('desktop-canvas').focus());
-$('desktop-canvas').addEventListener('contextmenu',event=>event.preventDefault());
-$('desktop-refresh').onclick=()=>desktopViewer?.SendRefresh();
-$('desktop-monitor').onchange=()=>desktopViewer?.SetDisplay(Number($('desktop-monitor').value));
-window.addEventListener('blur',()=>desktopViewer?.handleReleaseKeys());
+function disconnectDesktop(){desktopViewer?.disconnect();}
+$('desktop-connect').onclick=()=>{if(!selectedDevice)return;if(!desktopViewer)desktopViewer=new DesktopViewer($('panel-desktop'));desktopViewer.deviceID=selectedDevice.id;desktopViewer.connect();};
+$('desktop-popout').onclick=()=>{if(!selectedDevice)return;const popup=window.open(`/admin/desktop?device=${encodeURIComponent(selectedDevice.id)}`,'_blank','popup,width=1440,height=950');if(popup){disconnectDesktop();popup.opener=null;}else $('desktop-status').textContent='Allow popups to open the desktop window.';};
 window.addEventListener('pagehide',closeSupport);

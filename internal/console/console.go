@@ -150,6 +150,7 @@ func (c *Console) Close() {
 func (c *Console) Handler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /admin", c.page)
+	m.HandleFunc("GET /admin/desktop", c.desktopPage)
 	m.HandleFunc("GET /assets/{name}", c.asset)
 	m.HandleFunc("POST /api/auth/register/begin", c.beginRegister)
 	m.HandleFunc("POST /api/auth/register/finish", c.finishRegister)
@@ -164,7 +165,7 @@ func (c *Console) Handler() http.Handler {
 	m.HandleFunc("POST /api/admins/{id}/revoke", c.requireOwner(c.adminRevoke))
 	if c.agents != nil {
 		m.HandleFunc("GET /api/devices", c.requireOwner(c.devices))
-		m.HandleFunc("GET /api/devices/{id}/desktop", c.requireOwner(c.desktop))
+		m.HandleFunc("GET /api/devices/{id}/desktop-v2", c.requireOwner(c.desktop))
 		m.HandleFunc("POST /api/devices/{id}/command", c.requireOwner(c.command))
 		m.HandleFunc("POST /api/devices/{id}/upload", c.requireOwner(c.upload))
 		m.HandleFunc("POST /api/devices/{id}/download", c.requireOwner(c.download))
@@ -191,7 +192,7 @@ func (c *Console) Handler() http.Handler {
 
 func (c *Console) security(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -559,7 +560,7 @@ func (c *Console) asset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var contentType string
 	switch name {
-	case "app.js", "support.js", "agent-desktop.js", "help.js":
+	case "app.js", "support.js", "desktop-viewer.js", "desktop-page.js", "help.js":
 		contentType = "text/javascript; charset=utf-8"
 	case "app.css", "help.css", "theme.css":
 		contentType = "text/css; charset=utf-8"

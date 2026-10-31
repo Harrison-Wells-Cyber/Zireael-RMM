@@ -1,6 +1,6 @@
 # Go remote desktop: architecture and implementation handoff
 
-**Status: design only, 2026-10-30.** The current release still uses the bundled MeshAgent desktop engine. This document specifies its replacement; it does not describe functionality already shipped. Implement in the stages below and keep PowerShell, files, authentication, and installation working throughout.
+**Status: Go replacement implemented for Windows testing, 2026-10-30.** The implementation record at the end distinguishes local verification from Windows runtime testing. The design below remains the reference for behavior and follow-up work.
 
 ## 1. Decisions and scope
 
@@ -250,3 +250,19 @@ Start at stage 1; read the existing files listed above before editing. Do not re
 ### Verification of the foundation update
 
 Pairing-code removal passed state/management/console tests, including legacy pending records, actor revocation, expiry, CSRF, and stale sign-in. A disposable localhost browser check exercised a real pending enrollment, the admin approval click, subsequent agent connection, direct EXE download/hash, generated local-file command/copy, mobile layout, and logout cleanup. `go test ./...`, `go vet ./...`, JavaScript syntax checks, and Windows x64/ARM64 cross-builds passed. The downloaded-file PowerShell command has not been executed on Windows here. None of these checks validates the proposed capture engine; its implementation starts at stage 1.
+
+
+## 12. Implementation record (2026-10-30)
+
+The Go replacement now implements the v2 protocol, a same-EXE worker with mutual pipe PID checks, Windows session/token selection, GDI capture and a DXGI backend, cursor composition, bounded JPEG frames, ACK backpressure, keyboard/mouse/text input, view-only mode, monitor/quality/backend selection, heartbeat and cancellation, and shared embedded/pop-out/fullscreen viewers. The service launches a user-token worker by default; explicit elevated control requires fresh admin authentication and is audited. The service executable/directory grant read/execute access for workers while the machine DPAPI identity file retains a private SYSTEM/admin DACL. Worker processes remain in kill-on-close jobs and get a short graceful input-release interval on disconnect.
+
+The old native EXEs, scripts, embeds and viewer are removed from the shipped tree. Legacy desktop operations return an upgrade error; legacy control/shell/files are unchanged. Existing test agents require explicit uninstall/reinstall as documented in README; there is no automatic identity-preserving updater. The PowerShell package remains the existing Coming soon placeholder.
+
+Implemented DXGI details include adapter/output matching, correct COM method tables, staging texture readback with RowPitch, rotation, cursor visibility and resource cleanup. DXGI failure falls back to GDI except access/session errors; backend retry is bounded. Display/session changes, locked/secure desktops and first-frame stalls are explicit states. Input scan codes, INPUT layouts and inclusive virtual-desktop mapping are shared with protocol checks. Source-buffer budget is three rasters of at most 64 MiB each (DIB, converted pixels, DXGI rotation/readback), plus a bounded scaled raster and JPEG; capture is synchronous with at most one frame outstanding. Default GDI remains selectable to diagnose driver-specific issues.
+
+Local checks exercise malformed/oversized/direction-invalid protocol packets, JPEG dimension mismatches, coordinate mapping, pre-ACK input gating, ACK backpressure, cancellation/cleanup, real device approval and encrypted operation streams, and the browser rendering synthetic frames. The browser check covers view-only, input, portrait monitor switching, fullscreen, pop-out and exclusive viewer access. Go tests, race checks, vet and x64/ARM64 cross-builds are run before delivery. These checks do not execute Windows APIs.
+
+Follow-up after real Windows tests: validate DXGI/GDI color/rotation/cursor behavior, driver recovery and locked/RDP sessions, then profile scaling/JPEG and add delta/video encoding only if needed. Login-screen/SAS, secure-desktop control, audio, clipboard synchronization and unattended identity-preserving updates remain outside this release. A consolidated performance dashboard/counters is also future work; current diagnostics are structured viewer status, selected backend/privilege, heartbeat and timeout states.
+
+
+Final verification: the full Go suite and vet pass; desktop/management/console race checks pass; the desktop parser completed over 300,000 fuzz inputs without a failure. Both Windows targets cross-build, including compile-time guards for the INPUT and DXGI frame layouts. A disposable Chromium check passed rendering/ACK/input/view-only/monitor/fullscreen/pop-out/exclusive-viewer flows over real nested TLS. The Docker image builds and its fresh-volume, non-root bootstrap/package checks pass. Local comparison builds disable VCS stamping to match the Docker context, which excludes `.git`. Real Windows API execution remains for the operator's test.

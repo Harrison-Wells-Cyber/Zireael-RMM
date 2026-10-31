@@ -37,7 +37,7 @@ func (o Operation) Validate() error {
 		if len(o.Path) > 0 && len(o.Path) <= 4096 && !strings.ContainsRune(o.Path, 0) && o.Size >= 0 && o.Size <= MaxFile && o.Script == "" && o.Timeout == 0 && (o.Kind == "upload" || o.Size == 0) {
 			return nil
 		}
-	case "desktop":
+	case "desktop", "desktop-v2":
 		if o.Script == "" && o.Path == "" && o.Size == 0 && o.Timeout == 0 {
 			return nil
 		}

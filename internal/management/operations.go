@@ -53,7 +53,7 @@ func (s *Service) OperationAs(ctx context.Context, id string, request wire.Opera
 	for op := range s.operations {
 		if op.device == id {
 			count++
-			if request.Kind == "desktop" && op.kind == "desktop" {
+			if (request.Kind == "desktop" || request.Kind == "desktop-v2") && (op.kind == "desktop" || op.kind == "desktop-v2") {
 				desktopBusy = true
 			}
 		}

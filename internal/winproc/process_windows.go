@@ -102,7 +102,12 @@ func start(ctx context.Context, exe string, args []string, stdin, stdout, stderr
 	if token == 0 {
 		err = windows.CreateProcess(application, command, nil, nil, true, flags, nil, directory, &si.StartupInfo, &pi)
 	} else {
-		err = windows.CreateProcessAsUser(token, application, command, nil, nil, false, flags, nil, directory, &si.StartupInfo, &pi)
+		var environment *uint16
+		if err = windows.CreateEnvironmentBlock(&environment, token, false); err != nil {
+			return nil, err
+		}
+		defer windows.DestroyEnvironmentBlock(environment)
+		err = windows.CreateProcessAsUser(token, application, command, nil, nil, false, flags, environment, directory, &si.StartupInfo, &pi)
 	}
 	if err != nil {
 		return nil, err

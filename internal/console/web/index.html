@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operator console · Zireael-RMM</title><link rel="icon" type="image/png" href="/assets/swallow.png"><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/app.css"><script src="/assets/agent-desktop.js" defer></script><script src="/assets/app.js" defer></script><script src="/assets/support.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operator console · Zireael-RMM</title><link rel="icon" type="image/png" href="/assets/swallow.png"><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/app.css"><script src="/assets/desktop-viewer.js" defer></script><script src="/assets/app.js" defer></script><script src="/assets/support.js" defer></script></head>
 <body>
 <header><a class="brand" href="/admin"><span class="brand-mark" aria-hidden="true"><img src="/assets/swallow.png" alt=""></span><span class="brand-name">Zireael<span class="brand-suffix">-RMM</span></span></a><span class="badge">Private support console</span><button id="logout" class="quiet" hidden>Sign out</button></header>
 <main>
@@ -40,10 +40,12 @@
     <div class="section-heading"><div><span class="card-label">SUPPORT</span><h2 id="support-name"></h2></div><button id="close-support" class="quiet">Close tools</button></div>
     <p id="support-privilege"></p>
     <div class="tabs" role="group" aria-label="Support tools"><button id="tab-desktop" class="secondary" aria-pressed="true">Remote desktop</button><button id="tab-command" class="secondary" aria-pressed="false">PowerShell</button><button id="tab-files" class="secondary" aria-pressed="false">Files</button></div>
-    <section id="panel-desktop">
-      <div class="toolbar"><button id="desktop-connect">Connect desktop</button><button id="desktop-disconnect" class="quiet">Disconnect desktop</button><label>Monitor<select id="desktop-monitor"><option value="0">Default</option></select></label><button id="desktop-refresh" class="quiet">Refresh image</button></div>
-      <p id="desktop-status" role="status">Click Connect desktop to begin. Click the image to send keyboard input; click outside it to release.</p>
+    <section id="panel-desktop" class="desktop-viewer">
+      <div class="toolbar"><button id="desktop-connect">Connect desktop</button><button id="desktop-disconnect" class="quiet">Disconnect</button><button id="desktop-popout" class="quiet">Open in new window ↗</button><button id="desktop-fullscreen" class="quiet">Fullscreen</button><button id="desktop-fit" class="quiet">Actual size</button></div>
+      <div class="toolbar"><label>Windows session<select id="desktop-session"><option value="0">Automatic</option></select></label><button id="desktop-start" class="quiet">Start session</button><label>Monitor<select id="desktop-monitor"><option value="1">Default</option></select></label><label>Quality<select id="desktop-quality"><option value="balanced">Balanced</option><option value="sharp">Sharp text</option><option value="fast">Low bandwidth</option></select></label><label>Capture<select id="desktop-backend"><option value="auto">Automatic</option><option value="gdi">GDI</option></select></label><label class="check-label"><input id="desktop-view-only" type="checkbox"> View only</label><label id="desktop-privilege" class="check-label" hidden><input id="desktop-elevated" type="checkbox"> Elevated control</label></div>
+      <p id="desktop-status" role="status">Click Connect desktop to begin.</p><div class="desktop-meta"><span id="desktop-backend-label"></span><span id="desktop-expiry"></span></div>
       <div id="desktop-scroll"><canvas id="desktop-canvas" tabindex="0" width="960" height="540" aria-label="Remote desktop"></canvas></div>
+      <details><summary>Type text</summary><div class="toolbar"><label>Text<input id="desktop-text" maxlength="512" autocomplete="off"></label><button id="desktop-send-text" class="quiet">Send text</button></div></details>
     </section>
     <section id="panel-command" hidden>
       <label>PowerShell script<textarea id="command-script" rows="6" spellcheck="false" placeholder="Get-ComputerInfo | Select-Object WindowsProductName, CsName"></textarea></label>

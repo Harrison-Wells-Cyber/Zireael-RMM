@@ -115,3 +115,33 @@ func writeNew(path string, data []byte) error {
 	}
 	return closeErr
 }
+
+// A service's same-EXE worker runs as the selected user. Only the directory and
+// executable are readable to that user; the machine-protected identity remains
+// private to SYSTEM/administrators. No writable file is made executable here.
+func desktopReadAccess(dir string) error {
+	if err := noReparse(dir); err != nil {
+		return err
+	}
+	for _, entry := range []struct{ path, sddl string }{
+		{filepath.Join(dir, configName), "D:P(A;;FA;;;SY)(A;;FA;;;BA)"},
+		{dir, "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FRFX;;;AU)"},
+		{filepath.Join(dir, installedExecutableName), "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FRFX;;;AU)"},
+	} {
+		if err := noReparse(entry.path); err != nil {
+			return err
+		}
+		sd, err := windows.SecurityDescriptorFromString(entry.sddl)
+		if err != nil {
+			return err
+		}
+		acl, _, err := sd.DACL()
+		if err != nil {
+			return err
+		}
+		if err = windows.SetNamedSecurityInfo(entry.path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -39,15 +39,14 @@ func (h Handler) Serve(ctx context.Context, conn net.Conn) {
 		upload(conn, request)
 	case "download":
 		download(conn, request)
-	case "desktop":
+	case "desktop-v2":
 		if h.Desktop == nil {
-			failure(conn, errors.New("desktop engine unavailable"))
+			failure(conn, errors.New("desktop unavailable"))
 			return
 		}
-		// The platform adapter sends its ready reply only after its engine starts.
-		if err := h.Desktop(ctx, conn); err != nil {
-			failure(conn, err)
-		}
+		_ = h.Desktop(ctx, conn)
+	case "desktop":
+		failure(conn, errors.New("desktop protocol retired; update the server and agent"))
 	}
 }
 func failure(w io.Writer, err error) {
