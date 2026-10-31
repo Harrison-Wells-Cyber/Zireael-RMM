@@ -27,9 +27,13 @@ func (c *Console) operationContext(r *http.Request) (context.Context, context.Ca
 		defer timer.Stop()
 		for {
 			loaded, err := c.sessions.Load(context.Background(), token)
+			if err != nil {
+				cancel()
+				return
+			}
 			id, decodeErr := base64.RawURLEncoding.DecodeString(c.sessions.GetString(loaded, "adminID"))
 			_, adminErr := c.store.Admin(id)
-			if err != nil || decodeErr != nil || adminErr != nil || !c.sessions.GetBool(loaded, "owner") || time.Now().After(c.sessions.Deadline(loaded)) {
+			if decodeErr != nil || adminErr != nil || !c.sessions.GetBool(loaded, "owner") || time.Now().After(c.sessions.Deadline(loaded)) {
 				cancel()
 				return
 			}

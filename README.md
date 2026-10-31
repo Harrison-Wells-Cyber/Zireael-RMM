@@ -22,7 +22,7 @@ Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the 
 
 For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command. The PowerShell package option is coming soon.
 
-**Updating an existing test agent:** uninstall it using its installed `ZireaelRMM.exe uninstall`, then install again from the homepage (use elevated PowerShell for a service installation). Approve the new device and revoke the old entry. Keep your server data volume; admin accounts and other devices remain available. The old MeshAgent desktop engine is no longer bundled.
+**Updating an existing test agent:** uninstall it using its installed `ZireaelRMM.exe uninstall`, then install again from the homepage (use elevated PowerShell for a service installation). Approve the new device and revoke the old entry. Keep your server data volume; admin accounts and other devices remain available. Remove older test builds before reinstalling.
 
 The command shown in a browser must itself be trusted: TLS inspection that can alter the page can alter the command. The agent's encrypted inner connection protects subsequent agent traffic through TLS inspection, but cannot authenticate a replaced installer command. Admin browser traffic also requires a trusted HTTPS path.
 

@@ -96,7 +96,8 @@ func (b *windowsBackend) Input(c Control, m Monitor, w, h uint32) error {
 				return nil
 			}
 			down := c.Action == "down"
-			flags := [][2]uint32{{2, 4}, {32, 64}, {8, 16}, {128, 256}, {128, 256}}
+			// Button order is left, right, middle, X1, X2.
+			flags := [][2]uint32{{2, 4}, {8, 16}, {32, 64}, {128, 256}, {128, 256}}
 			index := 0
 			if !down {
 				index = 1
@@ -131,7 +132,7 @@ func (b *windowsBackend) Release() {
 	for button := range b.buttons {
 		i := winInput{}
 		p := (*mouseInput)(unsafe.Pointer(&i.Data[0]))
-		p.Flags = []uint32{4, 64, 16, 256, 256}[button]
+		p.Flags = []uint32{4, 16, 64, 256, 256}[button]
 		if button >= 3 {
 			p.Data = uint32(button - 2)
 		}
