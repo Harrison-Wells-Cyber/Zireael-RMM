@@ -73,6 +73,16 @@ func (a *Artifact) Download(w http.ResponseWriter, r *http.Request) {
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
 func Command(in agent.Invite, digest string) (string, error) {
+	return command(in, digest, false)
+}
+
+// LocalCommand installs an explicitly downloaded EXE. The file is copied into
+// the same protected staging directory and checked before it is executed.
+func LocalCommand(in agent.Invite, digest string) (string, error) {
+	return command(in, digest, true)
+}
+
+func command(in agent.Invite, digest string, local bool) (string, error) {
 	decoded, err := hex.DecodeString(digest)
 	if err != nil || len(decoded) != sha256.Size || !agent.ValidServer(in.Server) {
 		return "", errors.New("valid server and SHA-256 required")
@@ -90,10 +100,17 @@ func Command(in agent.Invite, digest string) (string, error) {
 	if in.Mode == "service" {
 		elevation = "if (-not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
 	}
+	prepare := ""
+	stage := "Invoke-WebRequest -UseBasicParsing -Uri " + quote(in.Server+"/agent/download") + " -OutFile $f;"
+	if local {
+		prepare = "$source=Read-Host 'Full path to the downloaded zireael-rmm-agent.exe (without quotes)'; if ([string]::IsNullOrWhiteSpace($source)) { throw 'An EXE path is required' };"
+		stage = "Copy-Item -LiteralPath $source -Destination $f -ErrorAction Stop;"
+	}
 	return strings.Join([]string{
 		"& { $ErrorActionPreference='Stop';",
 		"$elevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);",
 		elevation,
+		prepare,
 		"$base=if ($elevated) { [Environment]::GetFolderPath('ProgramFiles') } else { [IO.Path]::GetTempPath() };",
 		"[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;",
 		"$d=Join-Path $base ('ZireaelRMM-'+[Guid]::NewGuid().ToString('N'));",
@@ -101,7 +118,7 @@ func Command(in agent.Invite, digest string) (string, error) {
 		"if ($elevated) { $acl=New-Object Security.AccessControl.DirectorySecurity; $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'); Set-Acl -LiteralPath $d -AclObject $acl };",
 		"$f=Join-Path $d 'ZireaelRMM.exe';",
 		"try {",
-		"Invoke-WebRequest -UseBasicParsing -Uri " + quote(in.Server+"/agent/download") + " -OutFile $f;",
+		stage,
 		"if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ne " + quote(digest) + ") { throw 'Agent verification failed' };",
 		"$p=New-Object System.Diagnostics.Process;",
 		"$p.StartInfo.FileName=$f; $p.StartInfo.Arguments=" + quote("install --mode "+in.Mode) + ";",

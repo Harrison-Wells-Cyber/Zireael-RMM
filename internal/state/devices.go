@@ -24,7 +24,6 @@ type Device struct {
 	Expires     time.Time  `json:"expires"`
 	Revoked     *time.Time `json:"revoked,omitempty"`
 	Pending     bool       `json:"pending,omitempty"`
-	PairingCode string     `json:"-"`
 }
 
 // Keep public device JSON separate from private persistence records.
@@ -32,12 +31,11 @@ type deviceRecord struct {
 	Device      Device `json:"device"`
 	Certificate []byte `json:"certificate"`
 	KeyHash     string `json:"keyHash,omitempty"`
-	PairingCode string `json:"pairingCode,omitempty"`
 }
 
 // PublicEnrollmentToken is a stable deployment identifier, not an authorization
 // capability. Devices using it remain unable to connect until an admin approves
-// them with the code shown locally by the installer.
+// that specific device in the console.
 func (s *Store) PublicEnrollmentToken() (string, error) {
 	b, err := s.PrivateValue("public-enrollment-token", func() ([]byte, error) {
 		return []byte(base64.RawURLEncoding.EncodeToString(randomBytes())), nil
@@ -256,7 +254,6 @@ func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue fu
 			}
 			*result = record.Device
 			result.Certificate = record.Certificate
-			result.PairingCode = record.PairingCode
 		}
 		if record.Device.Pending && record.Device.Revoked == nil {
 			pending++
@@ -274,26 +271,24 @@ func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue fu
 	if err != nil {
 		return err
 	}
-	code := strings.ToUpper(hex.EncodeToString(randomBytes()[:4]))
-	*result = Device{ID: id, Name: hostname, Mode: "user", Certificate: cert, Fingerprint: fingerprint, Created: now.UTC(), Expires: expires, Pending: true, PairingCode: code}
-	if err := putJSON(devices, id, deviceRecord{Device: *result, Certificate: cert, KeyHash: keyHash, PairingCode: code}); err != nil {
+	*result = Device{ID: id, Name: hostname, Mode: "user", Certificate: cert, Fingerprint: fingerprint, Created: now.UTC(), Expires: expires, Pending: true}
+	if err := putJSON(devices, id, deviceRecord{Device: *result, Certificate: cert, KeyHash: keyHash}); err != nil {
 		return err
 	}
 	return audit(tx, "device.pending:"+id, now)
 }
 
-func (s *Store) ApproveDeviceAs(id, code string, actor []byte, now time.Time) error {
+func (s *Store) ApproveDeviceAs(id string, actor []byte, now time.Time) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if _, err := adminFrom(tx, actor); err != nil {
 			return err
 		}
 		b := tx.Bucket([]byte("devices"))
 		d, err := deviceFrom(b, id)
-		if err != nil || d.Revoked != nil || !d.Pending || !now.Before(d.Expires) || subtle.ConstantTimeCompare([]byte(strings.ToUpper(strings.TrimSpace(code))), []byte(d.PairingCode)) != 1 {
+		if err != nil || d.Revoked != nil || !d.Pending || !now.Before(d.Expires) {
 			return ErrDenied
 		}
 		d.Pending = false
-		d.PairingCode = ""
 		var record deviceRecord
 		if err := json.Unmarshal(b.Get([]byte(id)), &record); err != nil {
 			return err
@@ -314,7 +309,6 @@ func deviceFrom(b *bolt.Bucket, id string) (Device, error) {
 		return record.Device, err
 	}
 	record.Device.Certificate = record.Certificate
-	record.Device.PairingCode = record.PairingCode
 	return record.Device, nil
 }
 
@@ -375,7 +369,7 @@ func (s *Store) RevokeDeviceAs(id string, actor []byte, now time.Time) error {
 		if err = json.Unmarshal(b.Get([]byte(id)), &record); err != nil {
 			return err
 		}
-		if err = putJSON(b, id, deviceRecord{Device: d, Certificate: d.Certificate, KeyHash: record.KeyHash, PairingCode: record.PairingCode}); err != nil {
+		if err = putJSON(b, id, deviceRecord{Device: d, Certificate: d.Certificate, KeyHash: record.KeyHash}); err != nil {
 			return err
 		}
 		if actor != nil {

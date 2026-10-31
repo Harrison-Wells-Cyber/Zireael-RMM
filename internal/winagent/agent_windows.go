@@ -207,8 +207,8 @@ func install(args []string) error {
 	}
 	committed = true
 	fmt.Printf("Zireael-RMM installed (%s): %s\n", *mode, executable)
-	if config.PendingCode != "" {
-		fmt.Printf("Approval needed. Tell your helper this pairing code: %s\n", config.PendingCode)
+	if config.Pending {
+		fmt.Println("Installed. Your helper can now approve this computer in the admin console.")
 	}
 	if *mode == "temporary" {
 		fmt.Println("No startup entry was created. This process stops when support disconnects. Run the installed EXE again for a new session.")

@@ -34,7 +34,7 @@ type Config struct {
 	Mode        string `json:"mode"`
 	Certificate []byte `json:"certificate"`
 	PrivateKey  []byte `json:"privateKey"`
-	PendingCode string `json:"-"`
+	Pending     bool   `json:"-"`
 }
 
 func ValidServer(server string) bool {
@@ -74,9 +74,7 @@ func Enroll(ctx context.Context, in Invite, key, csr []byte, outerRoots *x509.Ce
 		return config, errors.New("unexpected enrollment identity")
 	}
 	config = Config{Server: in.Server, CA: in.CA, DeviceID: response.DeviceID, Mode: in.Mode, Certificate: response.Certificate, PrivateKey: key}
-	if response.Pending {
-		config.PendingCode = response.PairingCode
-	}
+	config.Pending = response.Pending
 	if _, err = config.identity(); err != nil {
 		return Config{}, err
 	}

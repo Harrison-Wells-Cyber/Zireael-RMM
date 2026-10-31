@@ -99,10 +99,15 @@ main:has(.app-shell:not([hidden])){max-width:1440px;padding-top:0}
 .clickable-agent{cursor:pointer}
 .clickable-agent:hover strong,.clickable-agent:focus-visible strong{color:var(--pale-river)}
 .device-status.pending:before{background:var(--soft-amber)}
-.pairing-input{width:130px;margin:0;text-transform:uppercase;letter-spacing:.1em}
 .empty-state{display:block;padding:30px 0;color:var(--text-muted)}
 .back-button{padding:0;min-height:36px;border:0;background:transparent;color:var(--pale-river);font-size:13px}
 .back-button:hover:not(:disabled){border:0;background:transparent;color:var(--parchment)}
 #page-detail #support{margin-top:18px}
 @media(max-width:900px){.app-shell{grid-template-columns:1fr}.sidebar{flex-direction:row;align-items:center;padding:14px 0;border-right:0;border-bottom:1px solid var(--border)}.sidebar-title,.sidebar-footer{display:none}.nav-item{width:auto;padding:10px 17px}.workspace{padding:30px 0 50px}.setup-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.device-row{display:block}.device-actions{margin-top:12px}.overview-strip{margin-top:20px}.overview-strip span{font-size:11px}.workspace{padding-top:25px}}
+
+.distribution-options{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:20px}
+.distribution-options section{padding:18px;border:1px solid var(--border);border-radius:10px;background:var(--surface-inset)}
+.distribution-options h3{margin:0;font-size:15px;font-weight:600}
+.format-label{margin-left:7px;color:var(--pale-river);font:12px ui-monospace,Consolas,monospace}
+@media(max-width:700px){.distribution-options{grid-template-columns:1fr}}

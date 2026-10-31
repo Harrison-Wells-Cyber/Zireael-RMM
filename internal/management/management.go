@@ -125,7 +125,7 @@ func (s *Service) Enroll(w http.ResponseWriter, r *http.Request) {
 		_ = wire.Write(conn, wire.EnrollmentResponse{Error: "Enrollment rejected or expired"})
 		return
 	}
-	_ = wire.Write(conn, wire.EnrollmentResponse{DeviceID: d.ID, Certificate: d.Certificate, Mode: d.Mode, Pending: d.Pending, PairingCode: d.PairingCode})
+	_ = wire.Write(conn, wire.EnrollmentResponse{DeviceID: d.ID, Certificate: d.Certificate, Mode: d.Mode, Pending: d.Pending})
 }
 
 func (s *Service) allowEnroll(remote string) bool {

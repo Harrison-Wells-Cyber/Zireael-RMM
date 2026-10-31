@@ -81,7 +81,7 @@ async function refreshSession() {
   $('auth-title').textContent = setupRequired ? 'Set up your console' : adminInvite ? 'Join the support team' : 'Welcome back';
   $('auth-description').textContent = setupRequired ? 'Enter the setup token created on your server, then register your first passkey.' : adminInvite ? 'Use this private invitation to create your own admin passkey.' : 'Enter your admin name, then use your security key, fingerprint, or device PIN.';
   $('signin').textContent = setupRequired ? 'Create your first passkey' : adminInvite ? 'Create my admin passkey' : 'Sign in with a passkey';
-  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
+  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('download-exe').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
   return session;
 }
 
@@ -93,6 +93,8 @@ async function refresh() {
 	refreshAdmins(admins);
     $('key-count').textContent = `${status.passkeys} registered ${status.passkeys === 1 ? 'passkey' : 'passkeys'}`;
     packageAvailable = status.agentPackageAvailable;
+    $('download-exe').hidden = !packageAvailable;
+    $('download-unavailable').hidden = packageAvailable;
     $('package-status').textContent = packageAvailable ? `Windows ${status.agentArchitecture === 'amd64' ? 'x64' : 'ARM64'} agent ready. Create a link for one device.` : 'Build a Windows agent and start the server with --agent-exe to enable installation commands.';
     $('create-invite').disabled = !packageAvailable;
     if (status.agentsEnabled) await refreshDevices();
@@ -140,7 +142,8 @@ async function refreshDevices() {
   deviceLabels = new Map(devices.map(device=>[device.id,device.name]));
   $('online-count').textContent = `${devices.filter(d=>d.online).length} online`;
   $('pending-count').textContent = `${devices.filter(d=>d.pending && !d.revoked).length} awaiting approval`;
-  $('total-count').textContent = `${devices.filter(d=>!d.revoked).length} devices`;
+  const total = devices.filter(d=>!d.revoked).length;
+  $('total-count').textContent = `${total} ${total === 1 ? 'device' : 'devices'}`;
   if (typeof selectedDevice !== 'undefined' && selectedDevice) {
     const current=devices.find(d=>d.id===selectedDevice.id);
     if (!current || !current.online || current.revoked) { closeSupport(); showPage('agents'); }
@@ -159,15 +162,15 @@ async function refreshDevices() {
     const info = document.createElement('p');
     info.className = 'device-status ' + (device.revoked ? 'revoked' : device.pending ? 'pending' : device.online ? 'online' : 'offline');
     info.textContent = `${device.revoked ? 'Revoked' : device.pending ? 'Awaiting approval' : device.online ? 'Online' : 'Offline'} · ${device.mode} mode`;
+    if (device.pending) info.textContent += ` · Requested ${new Date(device.created).toLocaleString()} · ${device.id.slice(0,8)}`;
     if (device.details) info.textContent += ` · ${device.details.hostname} · ${device.details.elevated ? 'Elevated' : 'Standard user'}`;
     description.append(name,info); row.append(description);
     if (!device.revoked) {
       const actions = document.createElement('div'); actions.className = 'device-actions';
       if (device.pending) {
-        const input=document.createElement('input');input.className='pairing-input';input.placeholder='Pairing code';input.setAttribute('aria-label',`Pairing code for ${device.name}`);input.maxLength=8;input.autocomplete='off';input.spellcheck=false;
         const approve=document.createElement('button');approve.textContent='Approve device';
-        approve.addEventListener('click',()=>perform(()=>api(`/api/devices/${encodeURIComponent(device.id)}/approve`,{code:input.value})));
-        actions.append(input,approve);
+        approve.addEventListener('click',()=>perform(()=>api(`/api/devices/${encodeURIComponent(device.id)}/approve`,{})));
+        actions.append(approve);
       } else if (device.online) {
         const open = document.createElement('button'); open.className='open-agent';open.textContent='Open agent →';
         open.addEventListener('click',()=>openSupport(device)); actions.append(open);
@@ -199,6 +202,7 @@ $('device-mode').addEventListener('change',() => {
 $('create-invite').addEventListener('click',() => perform(async () => {
   const result = await api('/api/invites',{name:$('device-name').value,mode:$('device-mode').value});
   $('install-command').value = result.command;
+  $('local-install-command').value = result.localCommand;
   $('support-link').value = result.supportURL;
   $('preview-link').href = result.supportURL;
   $('invite-expiry').textContent = `One device only. Enroll before ${new Date(result.expires).toLocaleString()}.`;
@@ -215,6 +219,9 @@ $('copy-link').addEventListener('click',() => perform(async () => {
 }));
 $('copy-command').addEventListener('click',() => perform(async () => {
   await navigator.clipboard.writeText($('install-command').value);
+}));
+$('copy-local-command').addEventListener('click',() => perform(async () => {
+  await navigator.clipboard.writeText($('local-install-command').value);
 }));
 $('refresh-devices').addEventListener('click',() => perform(refresh));
 

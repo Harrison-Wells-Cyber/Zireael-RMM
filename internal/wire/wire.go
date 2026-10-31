@@ -22,6 +22,7 @@ type EnrollmentResponse struct {
 	Certificate []byte `json:"certificate"`
 	Mode        string `json:"mode"`
 	Pending     bool   `json:"pending,omitempty"`
+	// Decode-only compatibility with older servers; never used or sent by new servers.
 	PairingCode string `json:"pairingCode,omitempty"`
 	Error       string `json:"error,omitempty"`
 }

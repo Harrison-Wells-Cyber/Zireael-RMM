@@ -38,15 +38,13 @@ func (c *Console) approve(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "Sign in again before approving a device")
 		return
 	}
-	var input struct {
-		Code string `json:"code"`
-	}
+	var input struct{}
 	if decode(r, &input) != nil {
-		fail(w, 400, "Enter the code shown on the Windows computer")
+		fail(w, 400, "Invalid approval request")
 		return
 	}
-	if c.store.ApproveDeviceAs(r.PathValue("id"), input.Code, c.adminID(r), time.Now()) != nil {
-		fail(w, 403, "Code incorrect or device unavailable")
+	if c.store.ApproveDeviceAs(r.PathValue("id"), c.adminID(r), time.Now()) != nil {
+		fail(w, 403, "Device unavailable for approval")
 		return
 	}
 	reply(w, 200, map[string]bool{"ok": true})
@@ -77,13 +75,19 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Unable to create enrollment link; check the name and mode")
 		return
 	}
-	command, err := bootstrap.Command(agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: token, Mode: input.Mode}, c.artifact.SHA256)
+	invitation := agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: token, Mode: input.Mode}
+	command, err := bootstrap.Command(invitation, c.artifact.SHA256)
+	if err != nil {
+		fail(w, 500, "Unable to create installer")
+		return
+	}
+	localCommand, err := bootstrap.LocalCommand(invitation, c.artifact.SHA256)
 	if err != nil {
 		fail(w, 500, "Unable to create installer")
 		return
 	}
 	// Fragments are not sent in HTTP request URLs or Referer headers.
-	reply(w, 201, map[string]any{"command": command, "supportURL": c.origin + "/#invite=" + token, "expires": expires, "architecture": c.artifact.Architecture})
+	reply(w, 201, map[string]any{"command": command, "localCommand": localCommand, "supportURL": c.origin + "/#invite=" + token, "expires": expires, "architecture": c.artifact.Architecture})
 }
 
 // supportInvite accepts only a pre-existing owner-created capability. It cannot
