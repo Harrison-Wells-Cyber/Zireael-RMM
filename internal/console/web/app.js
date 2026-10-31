@@ -81,7 +81,7 @@ async function refreshSession() {
   $('auth-title').textContent = setupRequired ? 'Set up your console' : adminInvite ? 'Join the support team' : 'Welcome back';
   $('auth-description').textContent = setupRequired ? 'Enter the setup token created on your server, then register your first passkey.' : adminInvite ? 'Use this private invitation to create your own admin passkey.' : 'Enter your admin name, then use your security key, fingerprint, or device PIN.';
   $('signin').textContent = setupRequired ? 'Create your first passkey' : adminInvite ? 'Create my admin passkey' : 'Sign in with a passkey';
-  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('download-exe').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
+  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('download-exe').hidden = true; $('download-ps1').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
   return session;
 }
 
@@ -94,6 +94,7 @@ async function refresh() {
     $('key-count').textContent = `${status.passkeys} registered ${status.passkeys === 1 ? 'passkey' : 'passkeys'}`;
     packageAvailable = status.agentPackageAvailable;
     $('download-exe').hidden = !packageAvailable;
+    $('download-ps1').hidden = !packageAvailable;
     $('download-unavailable').hidden = packageAvailable;
     $('package-status').textContent = packageAvailable ? `Windows ${status.agentArchitecture === 'amd64' ? 'x64' : 'ARM64'} agent ready. Create a link for one device.` : 'Build a Windows agent and start the server with --agent-exe to enable installation commands.';
     $('create-invite').disabled = !packageAvailable;

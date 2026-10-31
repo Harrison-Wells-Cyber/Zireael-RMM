@@ -61,6 +61,7 @@ type Console struct {
 	artifact      *bootstrap.Artifact
 	publicOnce    sync.Once
 	publicCommand string
+	publicPackage *bootstrap.Package
 	publicErr     error
 }
 
@@ -183,6 +184,8 @@ func (c *Console) Handler() http.Handler {
 		root.HandleFunc("GET /agent/v1/operation", c.agents.OperationStream)
 		if c.artifact != nil {
 			root.HandleFunc("GET /agent/download", c.artifact.Download)
+			root.HandleFunc("GET /agent.ps1", c.powerShellPackage)
+			root.HandleFunc("GET /agent", c.powerShellPackage)
 			root.HandleFunc("GET /api/default-command", c.defaultCommand)
 			root.HandleFunc("POST /api/support-invite", c.supportInvite)
 		}

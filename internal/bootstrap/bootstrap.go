@@ -77,16 +77,31 @@ func (a *Artifact) Download(w http.ResponseWriter, r *http.Request) {
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
 func Command(in agent.Invite, digest string) (string, error) {
-	return command(in, digest, false)
+	config, err := installerConfig(in, digest)
+	if err != nil {
+		return "", err
+	}
+	// Hash the exact downloaded script bytes before parsing or executing them.
+	return strings.Join([]string{
+		"& { $ErrorActionPreference='Stop';",
+		"[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;",
+		"$client=New-Object Net.WebClient;",
+		"try { $bytes=$client.DownloadData(" + quote(in.Server+"/agent.ps1") + ") } finally { $client.Dispose() };",
+		"$sha=[Security.Cryptography.SHA256]::Create();",
+		"try { $hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','') } finally { $sha.Dispose() };",
+		"if ($hash -ne " + quote(digest) + ") { throw 'PowerShell package verification failed' };",
+		"& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes))) -Enrollment " + quote(config),
+		"}",
+	}, " "), nil
 }
 
 // LocalCommand installs an explicitly downloaded EXE. The file is copied into
 // the same protected staging directory and checked before it is executed.
 func LocalCommand(in agent.Invite, digest string) (string, error) {
-	return command(in, digest, true)
+	return installCommand(in, digest, "", false)
 }
 
-func command(in agent.Invite, digest string, local bool) (string, error) {
+func installerConfig(in agent.Invite, digest string) (string, error) {
 	decoded, err := hex.DecodeString(digest)
 	if err != nil || len(decoded) != sha256.Size || !agent.ValidServer(in.Server) {
 		return "", errors.New("valid server and SHA-256 required")
@@ -98,23 +113,41 @@ func command(in agent.Invite, digest string, local bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	config := base64.StdEncoding.EncodeToString(raw)
-	// No executable first stage is fetched. All downloaded bytes are hashed here.
+	return base64.StdEncoding.EncodeToString(raw), nil
+}
+
+// installCommand shares staging, EXE verification, launch and cleanup between
+// an embedded package and the optional locally downloaded EXE.
+func installCommand(in agent.Invite, digest, payload string, embedded bool) (string, error) {
+	config, err := installerConfig(in, digest)
+	if err != nil {
+		return "", err
+	}
 	elevation := ""
 	if in.Mode == "service" {
 		elevation = "if (-not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
 	}
-	prepare := ""
-	stage := "Invoke-WebRequest -UseBasicParsing -Uri " + quote(in.Server+"/agent/download") + " -OutFile $f;"
-	if local {
-		prepare = "$source=Read-Host 'Full path to the downloaded zireael-rmm-agent.exe (without quotes)'; if ([string]::IsNullOrWhiteSpace($source)) { throw 'An EXE path is required' };"
-		stage = "Copy-Item -LiteralPath $source -Destination $f -ErrorAction Stop;"
+	prepare := "$source=Read-Host 'Full path to the downloaded zireael-rmm-agent.exe (without quotes)'; if ([string]::IsNullOrWhiteSpace($source)) { throw 'An EXE path is required' };"
+	stage := "Copy-Item -LiteralPath $source -Destination $f -ErrorAction Stop;"
+	arguments := quote("install --mode " + in.Mode)
+	enrollment := quote(config)
+	prefix := ""
+	if embedded {
+		prefix = "# Zireael-RMM Windows agent installer\nparam([string]$Enrollment=" + quote(config) + ")\n"
+		prepare = "$invite=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Enrollment)) | ConvertFrom-Json; $mode=[string]$invite.mode; if (@('user','service','temporary') -cnotcontains $mode) { throw 'Invalid installation mode' };"
+		elevation = "if ($mode -eq 'service' -and -not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
+		stage = "[IO.File]::WriteAllBytes($f,[Convert]::FromBase64String(" + quote(payload) + "));"
+		arguments = "('install --mode '+$mode)"
+		enrollment = "$Enrollment"
+	} else {
+		prepare = elevation + prepare
+		elevation = ""
 	}
-	return strings.Join([]string{
+	return prefix + strings.Join([]string{
 		"& { $ErrorActionPreference='Stop';",
 		"$elevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);",
-		elevation,
 		prepare,
+		elevation,
 		"$base=if ($elevated) { [Environment]::GetFolderPath('ProgramFiles') } else { [IO.Path]::GetTempPath() };",
 		"[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;",
 		"$d=Join-Path $base ('ZireaelRMM-'+[Guid]::NewGuid().ToString('N'));",
@@ -125,13 +158,13 @@ func command(in agent.Invite, digest string, local bool) (string, error) {
 		stage,
 		"if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ne " + quote(digest) + ") { throw 'Agent verification failed' };",
 		"$p=New-Object System.Diagnostics.Process;",
-		"$p.StartInfo.FileName=$f; $p.StartInfo.Arguments=" + quote("install --mode "+in.Mode) + ";",
+		"$p.StartInfo.FileName=$f; $p.StartInfo.Arguments=" + arguments + ";",
 		"$p.StartInfo.UseShellExecute=$false; $p.StartInfo.CreateNoWindow=$true;",
 		"$p.StartInfo.RedirectStandardInput=$true; $p.StartInfo.RedirectStandardOutput=$true; $p.StartInfo.RedirectStandardError=$true;",
 		"try {",
 		"if (-not $p.Start()) { throw 'Could not launch agent installer' };",
 		"$outTask=$p.StandardOutput.ReadToEndAsync(); $errTask=$p.StandardError.ReadToEndAsync();",
-		"$p.StandardInput.WriteLine(" + quote(config) + "); $p.StandardInput.Close();",
+		"$p.StandardInput.WriteLine(" + enrollment + "); $p.StandardInput.Close();",
 		"$p.WaitForExit();",
 		"$out=$outTask.GetAwaiter().GetResult(); $err=$errTask.GetAwaiter().GetResult();",
 		"if ($out) { Write-Host ($out.TrimEnd()) };",

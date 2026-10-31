@@ -17,16 +17,32 @@ func (c *Console) devices(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, devices)
 }
 
-func (c *Console) defaultCommand(w http.ResponseWriter, r *http.Request) {
+func (c *Console) prepareInstaller() error {
 	c.publicOnce.Do(func() {
 		token, err := c.store.PublicEnrollmentToken()
 		if err != nil {
 			c.publicErr = err
 			return
 		}
-		c.publicCommand, c.publicErr = bootstrap.Command(agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: token, Mode: "user"}, c.artifact.SHA256)
+		invite := agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: token, Mode: "user"}
+		c.publicPackage, c.publicErr = c.artifact.PowerShell(invite)
+		if c.publicErr == nil {
+			c.publicCommand, c.publicErr = bootstrap.Command(invite, c.publicPackage.SHA256)
+		}
 	})
-	if c.publicErr != nil {
+	return c.publicErr
+}
+
+func (c *Console) powerShellPackage(w http.ResponseWriter, r *http.Request) {
+	if c.prepareInstaller() != nil {
+		fail(w, 500, "Installer unavailable")
+		return
+	}
+	c.publicPackage.Download(w, r)
+}
+
+func (c *Console) defaultCommand(w http.ResponseWriter, r *http.Request) {
+	if c.prepareInstaller() != nil {
 		fail(w, 500, "Installer unavailable")
 		return
 	}
@@ -59,6 +75,10 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "Configure a built Windows agent using --agent-exe first")
 		return
 	}
+	if c.prepareInstaller() != nil {
+		fail(w, 500, "Installer unavailable")
+		return
+	}
 	var input struct {
 		Name string `json:"name"`
 		Mode string `json:"mode"`
@@ -76,7 +96,7 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	invitation := agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: token, Mode: input.Mode}
-	command, err := bootstrap.Command(invitation, c.artifact.SHA256)
+	command, err := bootstrap.Command(invitation, c.publicPackage.SHA256)
 	if err != nil {
 		fail(w, 500, "Unable to create installer")
 		return
@@ -110,7 +130,11 @@ func (c *Console) supportInvite(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "This support link has expired, has already been used, or is invalid. Ask your helper for a new link.")
 		return
 	}
-	command, err := bootstrap.Command(agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: input.Token, Mode: mode}, c.artifact.SHA256)
+	if c.prepareInstaller() != nil {
+		fail(w, 500, "The installer is unavailable. Let your helper know.")
+		return
+	}
+	command, err := bootstrap.Command(agent.Invite{Server: c.origin, CA: c.agents.CA(), Token: input.Token, Mode: mode}, c.publicPackage.SHA256)
 	if err != nil {
 		fail(w, 500, "The installer is unavailable. Let your helper know.")
 		return

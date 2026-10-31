@@ -20,7 +20,9 @@ The launcher accepts `--bind` and `--port` for a different public listener, and 
 
 Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the default one-line PowerShell command. They paste it into ordinary PowerShell. In **Agents**, click **Approve device** beside the pending computer within 24 hours, then click the online device to use desktop, PowerShell, or files. The default installation needs no elevation and reconnects when that Windows user signs in.
 
-For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command. The PowerShell package option is coming soon.
+The default command downloads a verified PowerShell package with the agent EXE embedded inside it. It extracts, verifies and installs the agent, then removes the temporary installer. You can also download this `.ps1` from **Agent downloads** for a default user installation.
+
+For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command.
 
 **Updating an existing test agent:** uninstall it using its installed `ZireaelRMM.exe uninstall`, then install again from the homepage (use elevated PowerShell for a service installation). Approve the new device and revoke the old entry. Keep your server data volume; admin accounts and other devices remain available. Remove older test builds before reinstalling.
 
