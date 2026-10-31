@@ -3,17 +3,19 @@ package desktop
 import (
 	"fmt"
 	"golang.org/x/sys/windows"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
 
-// The COM ABI and method indices follow the Windows SDK interfaces. References
-// and pinned revisions are listed in REMOTE_DESKTOP_ARCHITECTURE.md.
+// The COM ABI and method indices follow the Windows SDK interfaces.
 type comObject struct{ table *[64]uintptr }
 
+//go:uintptrescapes
 func call(o *comObject, index int, args ...uintptr) uintptr {
 	a := append([]uintptr{uintptr(unsafe.Pointer(o))}, args...)
 	r, _, _ := syscall.SyscallN(o.table[index], a...)
+	runtime.KeepAlive(o)
 	return r
 }
 func release(o *comObject) {

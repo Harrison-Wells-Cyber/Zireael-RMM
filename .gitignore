@@ -20,6 +20,7 @@ __pycache__/
 /SHA256SUMS
 /compose.yaml
 /docs/
+/REMOTE_DESKTOP_ARCHITECTURE.md
 /scripts/
 *_test.go
 /third_party/scs/.travis.yml

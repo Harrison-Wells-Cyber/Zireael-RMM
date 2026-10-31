@@ -95,17 +95,12 @@ func (b *windowsBackend) Input(c Control, m Monitor, w, h uint32) error {
 			if (c.Action == "down") == b.buttons[c.Button] {
 				return nil
 			}
-			down := c.Action == "down"
-			// Button order is left, right, middle, X1, X2.
-			flags := [][2]uint32{{2, 4}, {8, 16}, {32, 64}, {128, 256}, {128, 256}}
-			index := 0
-			if !down {
-				index = 1
+			flags, data, ok := mouseButtonFlags(c.Button, c.Action == "down")
+			if !ok {
+				return ErrProtocol
 			}
-			p.Flags |= flags[c.Button][index]
-			if c.Button >= 3 {
-				p.Data = uint32(c.Button - 2)
-			}
+			p.Flags |= flags
+			p.Data = data
 		case "wheel":
 			p.Flags |= 0x800
 			p.Data = uint32(c.Delta)
@@ -132,10 +127,7 @@ func (b *windowsBackend) Release() {
 	for button := range b.buttons {
 		i := winInput{}
 		p := (*mouseInput)(unsafe.Pointer(&i.Data[0]))
-		p.Flags = []uint32{4, 16, 64, 256, 256}[button]
-		if button >= 3 {
-			p.Data = uint32(button - 2)
-		}
+		p.Flags, p.Data, _ = mouseButtonFlags(button, false)
 		_ = inject(&i)
 		delete(b.buttons, button)
 	}

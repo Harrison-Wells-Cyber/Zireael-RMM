@@ -18,7 +18,7 @@ The launcher accepts `--bind` and `--port` for a different public listener, and 
 
 ## Help someone
 
-Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the default one-line PowerShell command. They paste it into ordinary PowerShell. In **Agents**, click **Approve device** beside the pending computer, then click the online device to use desktop, PowerShell, or files. The default installation needs no elevation and reconnects when that Windows user signs in.
+Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the default one-line PowerShell command. They paste it into ordinary PowerShell. In **Agents**, click **Approve device** beside the pending computer within 24 hours, then click the online device to use desktop, PowerShell, or files. The default installation needs no elevation and reconnects when that Windows user signs in.
 
 For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command. The PowerShell package option is coming soon.
 
@@ -28,6 +28,6 @@ The command shown in a browser must itself be trusted: TLS inspection that can a
 
 ## Status and licensing
 
-The server, web console, agent transport, and Windows cross-builds have been checked locally. The Go desktop replacement uses DXGI capture with GDI fallback, monitor/session selection, keyboard/mouse input, and view-only mode. Its transport and viewer have been exercised with synthetic frames; actual Windows capture/input testing is the next step. See the [architecture and implementation notes](REMOTE_DESKTOP_ARCHITECTURE.md). Agent certificates currently expire after one year without automatic renewal. Binaries are not code-signed and there is no automatic updater or account recovery beyond a second passkey and protected backups.
+The server, web console, agent transport, and Windows cross-builds have been checked locally. The Go desktop engine uses DXGI capture with GDI fallback, monitor/session selection, keyboard/mouse input, and view-only mode. Basic Windows support is working in the first operator test; service sessions, reconnects, and varied display setups still need broader testing. Agent certificates currently expire after one year without automatic renewal. Binaries are not code-signed and there is no automatic updater or account recovery beyond a second passkey and protected backups.
 
-Original project code is [CC0](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and the license/provenance files in `third_party/`.
+Original project code is [CC0](LICENSE). Dependencies use permissive licenses and retain their required notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). These texts are also embedded in both binaries; `server licenses` or `ZireaelRMM.exe licenses` prints them.

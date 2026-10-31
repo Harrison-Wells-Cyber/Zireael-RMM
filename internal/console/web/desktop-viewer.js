@@ -30,7 +30,7 @@ class DesktopViewer {
   pointer(e,action,delta=0){if(!this.canInput())return;const r=this.canvas.getBoundingClientRect();if(!r.width||!r.height)return;const x=Math.max(0,Math.min(this.canvas.width-1,Math.floor((e.clientX-r.left)*this.canvas.width/r.width)));const y=Math.max(0,Math.min(this.canvas.height-1,Math.floor((e.clientY-r.top)*this.canvas.height/r.height)));this.send({type:'pointer',generation:this.generation,x,y,action,button:action==='down'||action==='up'?e.button:0,delta});}
   releaseInput(){this.send({type:'release-input'});this.keys.clear();this.buttons.clear();}
   disconnect(message='Desktop disconnected.') {
-    const socket=this.socket;this.socket=null;this.streamEpoch++;
+    const socket=this.socket;this.socket=null;this.connecting=false;this.streamEpoch++;
     this.releaseInput();
     if(socket?.readyState===WebSocket.OPEN){try{socket.send(this.encode({type:'release-input'}));socket.send(this.encode({type:'stop'}));}catch{}}
     socket?.close();this.ready=false;this.generation=0;this.sequence=0;clearInterval(this.heartbeat);clearInterval(this.expiryTimer);this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.status(message);
@@ -38,13 +38,13 @@ class DesktopViewer {
   destroy(){this.disconnect();this.controller.abort();}
   async connect(){
     if(this.socket||this.connecting||!this.deviceID)return;
-    this.connecting=true;this.ready=false;this.sequence=0;this.generation=0;const epoch=++this.streamEpoch;this.status('Checking console session…');
-    try{const response=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});const session=await response.json();if(!response.ok||!session.authenticated){this.status('Sign in through the console, then reconnect.');this.connecting=false;return;}}catch{this.status('Unable to confirm the console session. Sign in again.');this.connecting=false;return;}
-    if(epoch!==this.streamEpoch){this.connecting=false;return;}
+    const deviceID=this.deviceID;this.connecting=true;this.ready=false;this.sequence=0;this.generation=0;const epoch=++this.streamEpoch;this.status('Checking console session…');
+    try{const response=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});const session=await response.json();if(epoch!==this.streamEpoch)return;if(!response.ok||!session.authenticated){this.status('Sign in through the console, then reconnect.');this.connecting=false;return;}}catch{if(epoch!==this.streamEpoch)return;this.status('Unable to confirm the console session. Sign in again.');this.connecting=false;return;}
+    if(epoch!==this.streamEpoch)return;
     this.connecting=false;this.status('Starting desktop…');
-    const url=new URL(`/api/devices/${encodeURIComponent(this.deviceID)}/desktop-v2`,location.href);url.protocol='wss:';
+    const url=new URL(`/api/devices/${encodeURIComponent(deviceID)}/desktop-v2`,location.href);url.protocol='wss:';
     const socket=this.socket=new WebSocket(url,'zireael-desktop-v2');socket.binaryType='arraybuffer';let queue=Promise.resolve();let queued=0;let lastSeen=Date.now();const opened=Date.now();
-    socket.onopen=()=>{this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>15000)this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,20-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
+    socket.onopen=()=>{if(this.socket!==socket)return;this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>15000)this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,20-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
     socket.onmessage=event=>{lastSeen=Date.now();if(++queued>8){this.disconnect('Viewer could not keep up.');return;}queue=queue.then(async()=>{if(this.socket!==socket)return;await this.message(event.data,epoch);}).catch(()=>{if(this.socket===socket)this.disconnect('Invalid desktop response.');}).finally(()=>queued--);};
     socket.onerror=()=>{if(this.socket===socket)this.status('Desktop connection failed. Sign in again or refresh the device list.');};
     socket.onclose=()=>{if(this.socket===socket){const text=this.el('status').textContent;this.disconnect(this.errorStatus?text:'Desktop connection ended.');}};
@@ -58,7 +58,7 @@ class DesktopViewer {
         if(c.protocol!==2||!Array.isArray(c.sessions)||c.sessions.length>16)throw Error();const select=this.el('session');select.replaceChildren(...c.sessions.map(s=>new Option(s.label,String(s.id))));const choice=c.sessions.some(s=>s.id===this.sessionChoice)?this.sessionChoice:c.defaultSession;if(choice!==undefined)select.value=String(choice);
         this.el('privilege').hidden=!c.elevatedAvailable;
         if(choice!==undefined)this.start();else{this.status('Choose a Windows session, then click Start session.');}
-        this.el('start').onclick=()=>this.start();this.el('start').disabled=false;break;
+        this.el('start').onclick=()=>this.start();this.el('start').disabled=this.startedEpoch===this.streamEpoch;break;
       }
       case 'geometry':
         if(!c.generation||!Array.isArray(c.monitors)||c.monitors.length>16||c.generation<this.generation)throw Error();this.releaseInput();this.generation=c.generation;this.ready=false;this.el('monitor').replaceChildren(...c.monitors.map(m=>new Option(m.label,String(m.id))));this.el('monitor').value=String(c.selectedMonitor);break;
@@ -73,8 +73,8 @@ class DesktopViewer {
       default:throw Error();
       }return;
     }
-    if(p[4]!==2||p.length<37||this.decoding)throw Error();const seq=v.getUint32(12),gen=v.getUint32(16),w=v.getUint32(24),h=v.getUint32(28);if(!seq||seq<=this.sequence||v.getUint32(32)||!w||!h||w>2560||h>2560||w*h>16777216)throw Error();if(gen!==this.generation)return;
-    this.decoding=true;let bitmap;try{bitmap=await createImageBitmap(new Blob([p.subarray(36)],{type:'image/jpeg'}));if(this.streamEpoch!==epoch||gen!==this.generation)return;if(bitmap.width!==w||bitmap.height!==h)throw Error();this.canvas.width=w;this.canvas.height=h;this.ctx.drawImage(bitmap,0,0);this.sequence=seq;this.ready=true;this.send({type:'ack',sequence:seq,generation:gen});this.status('Connected. Click the desktop to use keyboard and mouse.');}finally{bitmap?.close();this.decoding=false;}
+    if(p[4]!==2||p.length<37||this.decoding===epoch)throw Error();const seq=v.getUint32(12),gen=v.getUint32(16),w=v.getUint32(24),h=v.getUint32(28);if(!seq||seq<=this.sequence||v.getUint32(32)||!w||!h||w>2560||h>2560||w*h>16777216)throw Error();if(gen!==this.generation)return;
+    this.decoding=epoch;let bitmap;try{bitmap=await createImageBitmap(new Blob([p.subarray(36)],{type:'image/jpeg'}));if(this.streamEpoch!==epoch||gen!==this.generation)return;if(bitmap.width!==w||bitmap.height!==h)throw Error();this.canvas.width=w;this.canvas.height=h;this.ctx.drawImage(bitmap,0,0);this.sequence=seq;this.ready=true;this.send({type:'ack',sequence:seq,generation:gen});this.status('Connected. Click the desktop to use keyboard and mouse.');}finally{bitmap?.close();if(this.decoding===epoch)this.decoding=0;}
   }
   start(){if(this.startedEpoch===this.streamEpoch)return;this.startedEpoch=this.streamEpoch;this.el('start').disabled=true;this.send({...this.settings('start'),sessionID:Number(this.el('session').value),privilege:this.el('elevated').checked?'elevated':'user'});this.status('Starting capture…');}
 }

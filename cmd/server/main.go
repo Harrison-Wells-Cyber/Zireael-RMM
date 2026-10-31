@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	project "github.com/Harrison-Wells-Cyber/Zireael-RMM"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/bootstrap"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/console"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/management"
@@ -30,6 +31,10 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) == 1 && args[0] == "licenses" {
+		fmt.Print(project.ThirdPartyNotices)
+		return nil
+	}
 	if len(args) == 0 {
 		return errors.New("usage: server bootstrap --data-dir data | server serve --domain support.example [--agent-exe agent.exe]")
 	}

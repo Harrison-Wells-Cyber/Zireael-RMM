@@ -14,6 +14,9 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+const PendingLifetime = 24 * time.Hour
+const MaxPendingPerPeer = 4
+
 type Device struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
@@ -31,6 +34,7 @@ type deviceRecord struct {
 	Device      Device `json:"device"`
 	Certificate []byte `json:"certificate"`
 	KeyHash     string `json:"keyHash,omitempty"`
+	PeerHash    string `json:"peerHash,omitempty"`
 }
 
 // PublicEnrollmentToken is a stable deployment identifier, not an authorization
@@ -173,13 +177,20 @@ func (s *Store) Enroll(token, keyHash string, now time.Time, issue func(string) 
 }
 
 func (s *Store) EnrollWithName(token, keyHash, hostname string, now time.Time, issue func(string) ([]byte, string, time.Time, error)) (Device, error) {
+	return s.EnrollFromPeer(token, keyHash, hostname, "", now, issue)
+}
+
+// EnrollFromPeer partitions outstanding public requests using the TCP peer
+// selected by the server. The peer is hashed before persistence; forwarded
+// headers and client-supplied JSON never select this quota bucket.
+func (s *Store) EnrollFromPeer(token, keyHash, hostname, peer string, now time.Time, issue func(string) ([]byte, string, time.Time, error)) (Device, error) {
 	var result Device
 	if len(token) != 43 || len(keyHash) != 64 {
 		return result, ErrDenied
 	}
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		if private := tx.Bucket([]byte("private")); private != nil && subtle.ConstantTimeCompare([]byte(token), private.Get([]byte("public-enrollment-token"))) == 1 {
-			return enrollPublic(tx, keyHash, hostname, now, issue, &result)
+			return enrollPublic(tx, keyHash, hostname, peer, now, issue, &result)
 		}
 		b := tx.Bucket([]byte("invites"))
 		if b == nil {
@@ -191,6 +202,9 @@ func (s *Store) EnrollWithName(token, keyHash, hostname string, now time.Time, i
 		}
 		devices, err := tx.CreateBucketIfNotExists([]byte("devices"))
 		if err != nil {
+			return err
+		}
+		if err := prunePending(devices, now); err != nil {
 			return err
 		}
 		if in.DeviceID != "" {
@@ -224,7 +238,7 @@ func (s *Store) EnrollWithName(token, keyHash, hostname string, now time.Time, i
 	return result, err
 }
 
-func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue func(string) ([]byte, string, time.Time, error), result *Device) error {
+func enrollPublic(tx *bolt.Tx, keyHash, hostname, peer string, now time.Time, issue func(string) ([]byte, string, time.Time, error), result *Device) error {
 	owner, err := ownerFrom(tx)
 	if err != nil || len(owner.Credentials) == 0 {
 		return ErrDenied
@@ -242,7 +256,15 @@ func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue fu
 	if err != nil {
 		return err
 	}
-	pending := 0
+	if err := prunePending(devices, now); err != nil {
+		return err
+	}
+	peerHash := ""
+	if peer != "" {
+		hash := sha256.Sum256([]byte(peer))
+		peerHash = hex.EncodeToString(hash[:])
+	}
+	pending, peerPending := 0, 0
 	err = devices.ForEach(func(_, value []byte) error {
 		var record deviceRecord
 		if err := json.Unmarshal(value, &record); err != nil {
@@ -257,13 +279,16 @@ func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue fu
 		}
 		if record.Device.Pending && record.Device.Revoked == nil {
 			pending++
+			if peerHash != "" && record.PeerHash == peerHash {
+				peerPending++
+			}
 		}
 		return nil
 	})
 	if err != nil || result.ID != "" {
 		return err
 	}
-	if pending >= 64 || devices.Stats().KeyN >= 1024 {
+	if pending >= 64 || devices.Stats().KeyN >= 1024 || (peerHash != "" && peerPending >= MaxPendingPerPeer) {
 		return errors.New("pending enrollment limit reached")
 	}
 	id := randomID()
@@ -272,7 +297,7 @@ func enrollPublic(tx *bolt.Tx, keyHash, hostname string, now time.Time, issue fu
 		return err
 	}
 	*result = Device{ID: id, Name: hostname, Mode: "user", Certificate: cert, Fingerprint: fingerprint, Created: now.UTC(), Expires: expires, Pending: true}
-	if err := putJSON(devices, id, deviceRecord{Device: *result, Certificate: cert, KeyHash: keyHash}); err != nil {
+	if err := putJSON(devices, id, deviceRecord{Device: *result, Certificate: cert, KeyHash: keyHash, PeerHash: peerHash}); err != nil {
 		return err
 	}
 	return audit(tx, "device.pending:"+id, now)
@@ -285,7 +310,7 @@ func (s *Store) ApproveDeviceAs(id string, actor []byte, now time.Time) error {
 		}
 		b := tx.Bucket([]byte("devices"))
 		d, err := deviceFrom(b, id)
-		if err != nil || d.Revoked != nil || !d.Pending || !now.Before(d.Expires) {
+		if err != nil || d.Revoked != nil || !d.Pending || !now.Before(d.Expires) || pendingExpired(d, now) {
 			return ErrDenied
 		}
 		d.Pending = false
@@ -326,7 +351,7 @@ func (s *Store) Devices() ([]Device, error) {
 		}
 		return b.ForEach(func(k, _ []byte) error {
 			d, err := deviceFrom(b, string(k))
-			if err == nil {
+			if err == nil && !pendingExpired(d, time.Now()) {
 				result = append(result, d)
 			}
 			return err
@@ -377,4 +402,23 @@ func (s *Store) RevokeDeviceAs(id string, actor []byte, now time.Time) error {
 		}
 		return audit(tx, "device.revoked:"+id, now)
 	})
+}
+
+func pendingExpired(d Device, now time.Time) bool {
+	return d.Pending && (d.Revoked != nil || !now.Before(d.Expires) || !now.Before(d.Created.Add(PendingLifetime)))
+}
+func prunePending(b *bolt.Bucket, now time.Time) error {
+	c := b.Cursor()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		var record deviceRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return err
+		}
+		if pendingExpired(record.Device, now) {
+			if err := c.Delete(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

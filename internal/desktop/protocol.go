@@ -7,8 +7,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"golang.org/x/time/rate"
 	"image/jpeg"
 	"io"
+	"net"
+	"time"
 	"unicode/utf8"
 )
 
@@ -277,3 +280,35 @@ func Frame(seq, gen, monitor, w, h uint32, jpg []byte) ([]byte, error) {
 	return p, Validate(p, false)
 }
 func Write(w io.Writer, p []byte) error { _, e := io.Copy(w, bytes.NewReader(p)); return e }
+
+// AwaitStart keeps heartbeats alive while the operator chooses a Windows
+// session. Traffic never extends the fixed initialization deadline.
+func AwaitStart(conn net.Conn, timeout time.Duration) (Control, error) {
+	deadline := time.Now().Add(timeout)
+	conn.SetReadDeadline(deadline)
+	lim := rate.NewLimiter(4, 8)
+	for {
+		p, err := Read(conn, true)
+		if err != nil {
+			return Control{}, err
+		}
+		c, err := ParseControl(p[HeaderSize:], true)
+		if err != nil || !lim.Allow() {
+			return Control{}, ErrProtocol
+		}
+		switch c.Type {
+		case "start":
+			return c, nil
+		case "ping":
+			conn.SetWriteDeadline(deadline)
+			if err := Write(conn, Packet(Control{Type: "pong", Nonce: c.Nonce})); err != nil {
+				return Control{}, err
+			}
+		case "release-input":
+		case "stop":
+			return Control{}, io.EOF
+		default:
+			return Control{}, ErrProtocol
+		}
+	}
+}

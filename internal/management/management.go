@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -120,7 +121,7 @@ func (s *Service) Enroll(w http.ResponseWriter, r *http.Request) {
 		_ = wire.Write(conn, wire.EnrollmentResponse{Error: "Enrollment rejected"})
 		return
 	}
-	d, err := s.store.EnrollWithName(request.Token, keyHash, request.Hostname, time.Now(), func(id string) ([]byte, string, time.Time, error) { return s.authority.IssueDevice(id, csr) })
+	d, err := s.store.EnrollFromPeer(request.Token, keyHash, request.Hostname, enrollmentPeer(r.RemoteAddr), time.Now(), func(id string) ([]byte, string, time.Time, error) { return s.authority.IssueDevice(id, csr) })
 	if err != nil {
 		_ = wire.Write(conn, wire.EnrollmentResponse{Error: "Enrollment rejected or expired"})
 		return
@@ -318,4 +319,20 @@ func (c *connection) write(message wire.Control) error {
 	}
 	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return wire.Write(c.conn, message)
+}
+
+func enrollmentPeer(remote string) string {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return "unknown-peer"
+	}
+	addr = addr.Unmap().WithZone("")
+	if addr.Is6() {
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return addr.String()
 }

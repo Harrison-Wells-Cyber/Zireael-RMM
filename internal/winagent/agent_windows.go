@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	project "github.com/Harrison-Wells-Cyber/Zireael-RMM"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/agent"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/identity"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
@@ -42,6 +43,12 @@ func Run(args []string) error {
 		command, args = args[0], args[1:]
 	}
 	switch command {
+	case "licenses":
+		if len(args) != 0 {
+			return errors.New("licenses accepts no arguments")
+		}
+		fmt.Print(project.ThirdPartyNotices)
+		return nil
 	case "desktop-worker":
 		return desktopWorker(args)
 	case "install":

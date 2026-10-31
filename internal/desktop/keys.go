@@ -37,3 +37,20 @@ func MapPoint(x, y int32, w, h uint32, m Monitor, left, top int32, vw, vh uint32
 	}
 	return norm(px, left, vw), norm(py, top, vh), true
 }
+
+// DOM buttons are left, middle, right, X1, X2. Share this mapping between
+// injection and cleanup so a disconnect releases the same button we pressed.
+func mouseButtonFlags(button int, down bool) (flags, data uint32, ok bool) {
+	if button < 0 || button > 4 {
+		return 0, 0, false
+	}
+	pairs := [5][2]uint32{{2, 4}, {32, 64}, {8, 16}, {128, 256}, {128, 256}}
+	index := 0
+	if !down {
+		index = 1
+	}
+	if button >= 3 {
+		data = uint32(button - 2)
+	}
+	return pairs[button][index], data, true
+}

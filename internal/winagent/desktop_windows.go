@@ -121,14 +121,9 @@ func runDesktop(ctx context.Context, stream net.Conn) error {
 	if e = desktop.Write(stream, desktop.Packet(desktop.Control{Type: "hello", Protocol: 2, Sessions: sessions, DefaultSession: def, ElevatedAvailable: systemAgent()})); e != nil {
 		return e
 	}
-	stream.SetReadDeadline(time.Now().Add(60 * time.Second))
-	p, e := desktop.Read(stream, true)
+	start, e := desktop.AwaitStart(stream, 60*time.Second)
 	if e != nil {
 		return e
-	}
-	start, e := desktop.ParseControl(p[desktop.HeaderSize:], true)
-	if e != nil || start.Type != "start" {
-		return desktop.ErrProtocol
 	}
 	sessions, _, e = desktopSessions()
 	if e != nil {
@@ -232,6 +227,8 @@ func runDesktop(ctx context.Context, stream net.Conn) error {
 	listener.Close()
 	timer.Stop()
 	defer pipe.Close()
+	stopPipe := context.AfterFunc(ctx, func() { pipe.Close() })
+	defer stopPipe()
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	watcherDone := make(chan struct{})
