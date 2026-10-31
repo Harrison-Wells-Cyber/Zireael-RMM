@@ -140,7 +140,7 @@ async function perform(action) {
 async function refreshDevices() {
   const devices = await api('/api/devices');
   deviceLabels = new Map(devices.map(device=>[device.id,device.name]));
-  $('online-count').textContent = `${devices.filter(d=>d.online).length} online`;
+  $('online-count').textContent = `${devices.filter(d=>d.online && !d.revoked).length} online`;
   $('pending-count').textContent = `${devices.filter(d=>d.pending && !d.revoked).length} awaiting approval`;
   const total = devices.filter(d=>!d.revoked).length;
   $('total-count').textContent = `${total} ${total === 1 ? 'device' : 'devices'}`;
@@ -149,12 +149,13 @@ async function refreshDevices() {
     if (!current || !current.online || current.revoked) { closeSupport(); showPage('agents'); }
     else selectedDevice=current;
   }
-  if (!devices.length) {
+  const visible = devices.filter(device => !device.revoked || $('show-revoked').checked);
+  if (!visible.length) {
     const empty = document.createElement('li'); empty.className='empty-state';
-    empty.textContent = 'No agents yet. Share the public instructions to connect a Windows PC.';
+    empty.textContent = devices.length ? 'No agents in use. Select Show revoked to view previous devices.' : 'No agents yet. Share the public instructions to connect a Windows PC.';
     $('devices').replaceChildren(empty); return;
   }
-  const ordered=[...devices].sort((a,b)=>Number(b.pending)-Number(a.pending)||Number(b.online)-Number(a.online)||a.name.localeCompare(b.name));
+  const ordered=visible.sort((a,b)=>Number(b.pending)-Number(a.pending)||Number(b.online)-Number(a.online)||a.name.localeCompare(b.name));
   $('devices').replaceChildren(...ordered.map(device => {
     const row = document.createElement('li'); row.className = 'device-row';
     const description = document.createElement('div'); description.className='device-description';
@@ -224,6 +225,7 @@ $('copy-local-command').addEventListener('click',() => perform(async () => {
   await navigator.clipboard.writeText($('local-install-command').value);
 }));
 $('refresh-devices').addEventListener('click',() => perform(refresh));
+$('show-revoked').addEventListener('change',() => refreshDevices().catch(error => { $('message').textContent = error.message; }));
 
 $('create-admin-invite').addEventListener('click',()=>perform(async()=>{
   const result=await api('/api/admins/invites',{name:$('admin-name').value});

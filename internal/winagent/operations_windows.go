@@ -23,7 +23,8 @@ func runPowerShell(ctx context.Context, script string, output io.Writer) (int, e
 		return -1, err
 	}
 	// The script travels on stdin instead of a command line visible to other users.
-	wrapper := `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $OutputEncoding=[Console]::OutputEncoding; [Console]::InputEncoding=[Console]::OutputEncoding; $ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; try { $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s)); if (!$?) { exit 1 } } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }`
+	// Set both PowerShell's location and the process directory used by native tools.
+	wrapper := `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $OutputEncoding=[Console]::OutputEncoding; [Console]::InputEncoding=[Console]::OutputEncoding; $ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; try { Set-Location -LiteralPath $HOME; [Environment]::CurrentDirectory=$PWD.ProviderPath; $s=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($s)); if (!$?) { exit 1 } } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }`
 	units := utf16.Encode([]rune(wrapper))
 	encoded := make([]byte, 2*len(units))
 	for i, u := range units {
