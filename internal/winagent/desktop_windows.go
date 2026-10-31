@@ -182,6 +182,9 @@ func runDesktop(ctx context.Context, stream net.Conn) error {
 	// Allow the child a short graceful release after the operation is cancelled.
 	workerCtx, kill := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer kill()
+	if e = desktop.Write(stream, desktop.Packet(desktop.Control{Type: "status", State: "starting", Message: "Starting the Windows desktop worker."})); e != nil {
+		return e
+	}
 	args := []string{"desktop-worker", name, strconv.Itoa(os.Getpid())}
 	var proc *winproc.Process
 	if token != 0 {
@@ -209,7 +212,9 @@ func runDesktop(ctx context.Context, stream net.Conn) error {
 	}()
 	stop := context.AfterFunc(ctx, func() { listener.Close(); stream.Close() })
 	defer stop()
-	timer := time.AfterFunc(10*time.Second, func() { listener.Close() })
+	// A cold launch can take longer while Windows inspects the executable.
+	// Keep this bounded, but do not force the operator to retry a healthy launch.
+	timer := time.AfterFunc(30*time.Second, func() { listener.Close() })
 	defer timer.Stop()
 	var pipe net.Conn
 	for {

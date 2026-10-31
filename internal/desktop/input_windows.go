@@ -49,10 +49,16 @@ func sendKey(code uint16, down, unicode bool) error {
 	return inject(&i)
 }
 func (b *windowsBackend) Input(c Control, m Monitor, w, h uint32) error {
+	if e := b.prepareDesktop(); e != nil {
+		return e
+	}
 	b.inputMu.Lock()
 	defer b.inputMu.Unlock()
-	if e := ordinaryDesktop(); e != nil {
-		return e
+	if b.releasePending {
+		b.releaseLocked()
+		if b.releasePending {
+			return errors.New("Windows could not release previous input")
+		}
 	}
 	switch c.Type {
 	case "key":
@@ -120,15 +126,21 @@ func (b *windowsBackend) Input(c Control, m Monitor, w, h uint32) error {
 func (b *windowsBackend) Release() {
 	b.inputMu.Lock()
 	defer b.inputMu.Unlock()
+	b.releaseLocked()
+}
+func (b *windowsBackend) releaseLocked() {
 	for code := range b.keys {
-		_ = sendKey(ScanCodes[code], false, false)
-		delete(b.keys, code)
+		if sendKey(ScanCodes[code], false, false) == nil {
+			delete(b.keys, code)
+		}
 	}
 	for button := range b.buttons {
 		i := winInput{}
 		p := (*mouseInput)(unsafe.Pointer(&i.Data[0]))
 		p.Flags, p.Data, _ = mouseButtonFlags(button, false)
-		_ = inject(&i)
-		delete(b.buttons, button)
+		if inject(&i) == nil {
+			delete(b.buttons, button)
+		}
 	}
+	b.releasePending = len(b.keys) != 0 || len(b.buttons) != 0
 }

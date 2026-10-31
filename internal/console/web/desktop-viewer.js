@@ -30,13 +30,14 @@ class DesktopViewer {
   pointer(e,action,delta=0){if(!this.canInput())return;const r=this.canvas.getBoundingClientRect();if(!r.width||!r.height)return;const x=Math.max(0,Math.min(this.canvas.width-1,Math.floor((e.clientX-r.left)*this.canvas.width/r.width)));const y=Math.max(0,Math.min(this.canvas.height-1,Math.floor((e.clientY-r.top)*this.canvas.height/r.height)));this.send({type:'pointer',generation:this.generation,x,y,action,button:action==='down'||action==='up'?e.button:0,delta});}
   releaseInput(){this.send({type:'release-input'});this.keys.clear();this.buttons.clear();}
   disconnect(message='Desktop disconnected.') {
+    clearTimeout(this.retryTimer);
     const socket=this.socket;this.socket=null;this.connecting=false;this.streamEpoch++;
     this.releaseInput();
     if(socket?.readyState===WebSocket.OPEN){try{socket.send(this.encode({type:'release-input'}));socket.send(this.encode({type:'stop'}));}catch{}}
     socket?.close();this.ready=false;this.generation=0;this.sequence=0;clearInterval(this.heartbeat);clearInterval(this.expiryTimer);this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.status(message);
   }
   destroy(){this.disconnect();this.controller.abort();}
-  async connect(){
+  async connect(attempt=0){
     if(this.socket||this.connecting||!this.deviceID)return;
     const deviceID=this.deviceID;this.connecting=true;this.ready=false;this.sequence=0;this.generation=0;const epoch=++this.streamEpoch;this.status('Checking console session…');
     try{const response=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});const session=await response.json();if(epoch!==this.streamEpoch)return;if(!response.ok||!session.authenticated){this.status('Sign in through the console, then reconnect.');this.connecting=false;return;}}catch{if(epoch!==this.streamEpoch)return;this.status('Unable to confirm the console session. Sign in again.');this.connecting=false;return;}
@@ -44,11 +45,21 @@ class DesktopViewer {
     this.connecting=false;this.status('Starting desktop…');
     const url=new URL(`/api/devices/${encodeURIComponent(deviceID)}/desktop-v2`,location.href);url.protocol='wss:';
     const socket=this.socket=new WebSocket(url,'zireael-desktop-v2');socket.binaryType='arraybuffer';let queue=Promise.resolve();let queued=0;let lastSeen=Date.now();const opened=Date.now();
-    socket.onopen=()=>{if(this.socket!==socket)return;this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>15000)this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,20-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
-    socket.onmessage=event=>{lastSeen=Date.now();if(++queued>8){this.disconnect('Viewer could not keep up.');return;}queue=queue.then(async()=>{if(this.socket!==socket)return;await this.message(event.data,epoch);}).catch(()=>{if(this.socket===socket)this.disconnect('Invalid desktop response.');}).finally(()=>queued--);};
+    socket.onopen=()=>{if(this.socket!==socket)return;this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>(this.sequence===0?45000:15000))this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,20-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
+    socket.onmessage=event=>{if(this.socket!==socket)return;lastSeen=Date.now();if(++queued>8){this.disconnect('Viewer could not keep up.');return;}queue=queue.then(async()=>{if(this.socket!==socket)return;await this.message(event.data,epoch);}).catch(()=>{if(this.socket===socket)this.disconnect('Invalid desktop response.');}).finally(()=>queued--);};
     socket.onerror=()=>{if(this.socket===socket)this.status('Desktop connection failed. Sign in again or refresh the device list.');};
-    socket.onclose=()=>{if(this.socket===socket){const text=this.el('status').textContent;this.disconnect(this.errorStatus?text:'Desktop connection ended.');}};
-    this.errorStatus=false;
+    // A close can arrive while the final status is still queued for processing.
+    socket.onclose=()=>{queue.then(()=>{
+      if(this.socket!==socket)return;
+      const retry=this.busy&&this.sequence===0&&attempt<5;
+      const text=this.el('status').textContent;
+      this.disconnect(this.errorStatus?text:'Desktop connection ended.');
+      if(retry){
+        const retryEpoch=this.streamEpoch;this.connecting=true;this.status('Waiting for the previous desktop session to close…');
+        this.retryTimer=setTimeout(()=>{if(retryEpoch!==this.streamEpoch)return;this.connecting=false;this.connect(attempt+1);},300*(attempt+1));
+      }
+    });};
+    this.errorStatus=false;this.busy=false;
   }
   async message(buffer,epoch){
     if(!(buffer instanceof ArrayBuffer)||buffer.byteLength<12||buffer.byteLength>8388620)throw Error();const p=new Uint8Array(buffer),v=new DataView(buffer);if(v.getUint32(0)!==0x5a524432||v.getUint8(5)||v.getUint16(6)||v.getUint32(8)!==p.length-12)throw Error();
@@ -65,9 +76,9 @@ class DesktopViewer {
       case 'status':
         this.onStatus?.(c);
         this.el('backend-label').textContent=c.backend?`${c.backend.toUpperCase()} · ${c.elevated?'Elevated':'User'}`:'';
-        if(c.state==='error'){this.errorStatus=true;this.status(c.message||c.code);this.ready=false;}
+        if(c.state==='error'){this.errorStatus=true;this.busy=c.code==='desktop_busy';this.status(c.message||c.code);this.ready=false;}
         else if(c.state==='paused'){this.status(c.message||c.code);this.ready=false;this.releaseInput();}
-        else if(c.state!=='streaming'||!this.ready)this.status(c.message||'Starting capture…');break;
+        else if(c.code||c.state!=='streaming'||!this.ready)this.status(c.message||'Starting capture…');break;
       case 'ping':this.send({type:'pong',nonce:c.nonce||0});break;
       case 'pong':break;
       default:throw Error();

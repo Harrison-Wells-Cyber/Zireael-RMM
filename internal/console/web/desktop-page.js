@@ -6,7 +6,5 @@
  const id=new URLSearchParams(location.search).get('device');if(!/^[a-f0-9]{64}$/.test(id||'')){status.textContent='Choose a device from the console.';return;}
  const devices=await fetch('/api/devices',{credentials:'same-origin'});if(!devices.ok)throw Error('Sign in again through the console.');const device=(await devices.json()).find(d=>d.id===id&&!d.revoked&&!d.pending);if(!device)throw Error('Device unavailable.');document.getElementById('device-name').textContent=device.name;
  const viewer=new DesktopViewer(document.getElementById('panel-desktop'));viewer.deviceID=id;
- let retries=0;viewer.onStatus=c=>{if(c.code==='desktop_busy'&&retries++<5)setTimeout(()=>{viewer.disconnect();viewer.connect();},500);};
- // The embedded operation may take a moment to finish closing after pop-out.
- await new Promise(resolve=>setTimeout(resolve,700));viewer.connect();
+ viewer.connect();
 })().catch(e=>{document.getElementById('desktop-status').textContent=e.message;});

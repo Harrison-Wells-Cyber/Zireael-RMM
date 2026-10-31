@@ -31,6 +31,8 @@ var drawIcon = user32.NewProc("DrawIconEx")
 var openInput = user32.NewProc("OpenInputDesktop")
 var closeDesktop = user32.NewProc("CloseDesktop")
 var objectInfo = user32.NewProc("GetUserObjectInformationW")
+var getThreadDesktop = user32.NewProc("GetThreadDesktop")
+var setThreadDesktop = user32.NewProc("SetThreadDesktop")
 var metrics = user32.NewProc("GetSystemMetrics")
 
 type rect struct{ L, T, R, B int32 }
@@ -59,17 +61,21 @@ type iconInfo struct {
 	Mask, Color uintptr
 }
 type windowsBackend struct {
-	inputMu                 sync.Mutex
-	screen, dc, bitmap, old uintptr
-	pixels                  unsafe.Pointer
-	size                    image.Point
-	rgba                    *image.RGBA
-	keys                    map[string]bool
-	buttons                 map[int]bool
-	dx                      *duplication
-	dxMonitor               uint32
-	dxFailed                bool
-	dxRetry                 time.Time
+	inputMu                  sync.Mutex
+	screen, dc, bitmap, old  uintptr
+	pixels                   unsafe.Pointer
+	size                     image.Point
+	rgba                     *image.RGBA
+	keys                     map[string]bool
+	buttons                  map[int]bool
+	dx                       *duplication
+	dxMonitor                uint32
+	dxFailed                 bool
+	dxRetry                  time.Time
+	lastCapture              time.Time
+	desktop, originalDesktop uintptr
+	interrupted              bool
+	releasePending           bool // Protected by inputMu, like keys and buttons.
 }
 
 func NewWindowsBackend() Backend {
@@ -96,18 +102,67 @@ func (b *windowsBackend) Monitors() ([]Monitor, error) {
 	}
 	return result, nil
 }
-func ordinaryDesktop() error {
-	h, _, e := openInput.Call(0, 0, 1)
+func (b *windowsBackend) prepareDesktop() error {
+	if e := b.attachDesktop(); e != nil {
+		b.interrupted = true
+		b.resetDX()
+		b.closeSurface()
+		b.lastCapture = time.Time{}
+		return e
+	}
+	if b.interrupted {
+		// Retry releases that Windows rejected while the secure desktop was up.
+		b.Release()
+		b.interrupted = false
+		b.dxFailed = false
+	}
+	return nil
+}
+func (b *windowsBackend) attachDesktop() error {
+	// READOBJECTS | CREATEWINDOW | WRITEOBJECTS. Only bind to Default, even
+	// when this worker's token could open the secure desktop.
+	h, _, e := openInput.Call(0, 0, 0x83)
 	if h == 0 {
 		return &CaptureError{"session_locked", e}
 	}
-	defer closeDesktop.Call(h)
+	keep := false
+	defer func() {
+		if !keep {
+			closeDesktop.Call(h)
+		}
+	}()
 	var name [256]uint16
 	var n uint32
 	ok, _, e := objectInfo.Call(h, 2, uintptr(unsafe.Pointer(&name[0])), uintptr(unsafe.Sizeof(name)), uintptr(unsafe.Pointer(&n)))
 	if ok == 0 || windows.UTF16ToString(name[:]) != "Default" {
 		return &CaptureError{"desktop_unavailable", e}
 	}
+	current, _, e := getThreadDesktop.Call(uintptr(windows.GetCurrentThreadId()))
+	if current == 0 {
+		return &CaptureError{"desktop_unavailable", e}
+	}
+	var receivesInput int32
+	ok, _, _ = objectInfo.Call(current, 6, uintptr(unsafe.Pointer(&receivesInput)), unsafe.Sizeof(receivesInput), uintptr(unsafe.Pointer(&n)))
+	if current != 0 && ok != 0 && receivesInput != 0 {
+		return nil
+	}
+	// Drop thread-bound graphics resources before rebinding after a switch.
+	b.resetDX()
+	b.closeSurface()
+	b.lastCapture = time.Time{}
+	ok, _, e = setThreadDesktop.Call(h)
+	if ok == 0 {
+		return &CaptureError{"desktop_unavailable", e}
+	}
+	if b.originalDesktop == 0 {
+		b.originalDesktop = current // Borrowed handle; never close it.
+	}
+	if b.desktop != 0 {
+		closeDesktop.Call(b.desktop)
+	}
+	b.desktop = h
+	b.dxFailed = false
+	keep = true
 	return nil
 }
 func (b *windowsBackend) surface(m Monitor) error {
@@ -140,9 +195,7 @@ func (b *windowsBackend) surface(m Monitor) error {
 	return nil
 }
 func (b *windowsBackend) Capture(m Monitor, backend string) (image.Image, string, error) {
-	if e := ordinaryDesktop(); e != nil {
-		b.dxFailed = false
-		b.resetDX()
+	if e := b.prepareDesktop(); e != nil {
 		return nil, "", e
 	}
 	if !m.Valid() {
@@ -177,16 +230,25 @@ func (b *windowsBackend) Capture(m Monitor, backend string) (image.Image, string
 		if b.dx != nil {
 			data, draw, e := b.dx.capture(m)
 			if e == nil && data == nil {
-				return nil, "dxgi", nil
+				// An idle output may time out even before its first DXGI frame.
+				// Seed/reseed the viewer with GDI, then refresh idle displays at
+				// least once a second (also covers a new protocol generation).
+				if time.Since(b.lastCapture) < time.Second {
+					return nil, "dxgi", nil
+				}
 			}
-			if e == nil {
+			if e == nil && data != nil {
 				copy(unsafe.Slice((*byte)(b.pixels), int(m.Width*m.Height*4)), data)
 				name = "dxgi"
 				cursor = draw
-			} else {
+			} else if e != nil {
 				b.resetDX()
-				if deniedDX(e) {
-					return nil, "dxgi", &CaptureError{"access_denied", e}
+				var code dxError
+				if deniedDX(e) || errors.As(e, &code) && (uint32(code) == 0x887a0026 || uint32(code) == 0x887a0005) {
+					b.closeSurface()
+					b.lastCapture = time.Time{}
+					b.interrupted = true
+					return nil, "dxgi", &CaptureError{"desktop_unavailable", e}
 				}
 				b.dxFailed = true
 				b.dxRetry = time.Now().Add(10 * time.Second)
@@ -196,6 +258,8 @@ func (b *windowsBackend) Capture(m Monitor, backend string) (image.Image, string
 	if name == "gdi" {
 		ok, _, e := bitBlt.Call(b.dc, 0, 0, uintptr(m.Width), uintptr(m.Height), b.screen, uintptr(m.X), uintptr(m.Y), 0x40cc0020)
 		if ok == 0 {
+			b.closeSurface()
+			b.lastCapture = time.Time{}
 			return nil, name, fmt.Errorf("BitBlt: %w", e)
 		}
 	}
@@ -208,6 +272,7 @@ func (b *windowsBackend) Capture(m Monitor, backend string) (image.Image, string
 	for i := 0; i < len(src); i += 4 {
 		dst[i], dst[i+1], dst[i+2], dst[i+3] = src[i+2], src[i+1], src[i], 255
 	}
+	b.lastCapture = time.Now()
 	return b.rgba, name, nil
 }
 func (b *windowsBackend) cursor(m Monitor) {
@@ -253,7 +318,16 @@ func (b *windowsBackend) resetDX() {
 		b.dx = nil
 	}
 }
-func (b *windowsBackend) Close() { b.resetDX(); b.closeSurface() }
+func (b *windowsBackend) Close() {
+	b.resetDX()
+	b.closeSurface()
+	if b.desktop != 0 {
+		if ok, _, _ := setThreadDesktop.Call(b.originalDesktop); ok != 0 {
+			closeDesktop.Call(b.desktop)
+			b.desktop = 0
+		}
+	}
+}
 
 var monitorCallback = windows.NewCallback(func(handle, dc, r uintptr, result *[]Monitor) uintptr {
 	var info monInfo

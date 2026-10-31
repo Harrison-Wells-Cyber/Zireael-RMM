@@ -147,6 +147,26 @@ func Serve(ctx context.Context, conn net.Conn, start Control, b Backend) error {
 	lastFrame := time.Now()
 	lastPing := time.Now()
 	lastError := ""
+	pause := func(e error, backend string) error {
+		b.Release()
+		frameReady = false
+		code := statusError(e)
+		if lastError == "" {
+			// Input can notice a desktop switch while a frame is in flight.
+			// Invalidate that frame so its late ACK cannot re-enable input.
+			gen++
+			waiting = false
+			width, height = 0, 0
+			if err := geometry(); err != nil {
+				return err
+			}
+		}
+		if code != lastError {
+			lastError = code
+			return status("paused", code, "Desktop is unavailable. Waiting for the interactive desktop.", backend)
+		}
+		return nil
+	}
 	nonce := uint32(0)
 	bandwidth := rate.NewLimiter(rate.Limit(1<<20), MaxFrame)
 	for {
@@ -225,6 +245,13 @@ func Serve(ctx context.Context, conn net.Conn, start Control, b Backend) error {
 					continue
 				}
 				if err = b.Input(c, selected, width, height); err != nil {
+					var unavailable *CaptureError
+					if errors.As(err, &unavailable) {
+						if err = pause(err, ""); err != nil {
+							return err
+						}
+						continue
+					}
 					b.Release()
 					if err = status("streaming", "input_failed", "Windows could not apply the input.", ""); err != nil {
 						return err
@@ -271,14 +298,8 @@ func Serve(ctx context.Context, conn net.Conn, start Control, b Backend) error {
 			}
 			im, backend, e := b.Capture(selected, settings.Backend)
 			if e != nil {
-				code := statusError(e)
-				b.Release()
-				frameReady = false
-				if code != lastError {
-					lastError = code
-					if err = status("paused", code, "Desktop is unavailable. Waiting for the interactive desktop.", backend); err != nil {
-						return err
-					}
+				if err = pause(e, backend); err != nil {
+					return err
 				}
 				continue
 			}
