@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/agent"
 )
@@ -61,6 +62,9 @@ func Load(path string) (*Artifact, error) {
 }
 
 func (a *Artifact) Download(w http.ResponseWriter, r *http.Request) {
+	// The installer can be tens of megabytes. The server-wide write timeout is
+	// shorter than a slow link needs, so extend it for this response only.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(30 * time.Minute))
 	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
 	w.Header().Set("Content-Disposition", `attachment; filename="zireael-rmm-agent.exe"`)
 	w.Header().Set("Content-Length", fmt.Sprint(len(a.data)))

@@ -2,7 +2,7 @@
 // Shared by the embedded console and the dedicated desktop window.
 class DesktopViewer {
   constructor(root) {
-    this.root=root;this.el=id=>root.querySelector('#desktop-'+id);this.canvas=this.el('canvas');this.ctx=this.canvas.getContext('2d',{alpha:false});this.socket=null;this.generation=0;this.ready=false;this.sequence=0;this.keys=new Set();this.buttons=new Set();this.controller=new AbortController();this.streamEpoch=0;
+    this.root=root;this.el=id=>root.querySelector('#desktop-'+id);this.canvas=this.el('canvas');this.ctx=this.canvas.getContext('2d',{alpha:false});this.socket=null;this.generation=0;this.ready=false;this.sequence=0;this.keys=new Set();this.buttons=new Set();this.controller=new AbortController();this.streamEpoch=0;this.connecting=false;
     const on=(target,name,fn)=>target.addEventListener(name,fn,{signal:this.controller.signal});
     on(this.el('connect'),'click',()=>this.connect());on(this.el('disconnect'),'click',()=>this.disconnect());
     on(this.el('session'),'change',()=>{this.sessionChoice=Number(this.el('session').value);if(this.socket){this.disconnect();this.connect();}});
@@ -25,19 +25,26 @@ class DesktopViewer {
   status(text){this.el('status').textContent=text;}
   settings(type){const quality=this.el('quality').value;const preset={balanced:[10,1920,70],sharp:[8,2560,85],fast:[6,1280,50]}[quality];return {type,viewOnly:this.el('view-only').checked,maxFPS:preset[0],maxEdge:preset[1],quality:preset[2],backend:this.el('backend').value};}
   canInput(){return this.ready&&!this.el('view-only').checked&&this.socket?.readyState===WebSocket.OPEN;}
-  send(c){if(this.socket?.readyState!==WebSocket.OPEN)return;if(this.socket.bufferedAmount>65536){this.disconnect('Connection is too slow. Reconnect to continue.');return;}const data=new TextEncoder().encode(JSON.stringify(c));const p=new Uint8Array(12+data.length);p.set([90,82,68,50,1,0,0,0]);new DataView(p.buffer).setUint32(8,data.length);p.set(data,12);this.socket.send(p);}
+  encode(c){const data=new TextEncoder().encode(JSON.stringify(c));const p=new Uint8Array(12+data.length);p.set([90,82,68,50,1,0,0,0]);new DataView(p.buffer).setUint32(8,data.length);p.set(data,12);return p;}
+  send(c){const socket=this.socket;if(socket?.readyState!==WebSocket.OPEN)return;if(socket.bufferedAmount>65536){this.disconnect('Connection is too slow. Reconnect to continue.');return;}socket.send(this.encode(c));}
   pointer(e,action,delta=0){if(!this.canInput())return;const r=this.canvas.getBoundingClientRect();if(!r.width||!r.height)return;const x=Math.max(0,Math.min(this.canvas.width-1,Math.floor((e.clientX-r.left)*this.canvas.width/r.width)));const y=Math.max(0,Math.min(this.canvas.height-1,Math.floor((e.clientY-r.top)*this.canvas.height/r.height)));this.send({type:'pointer',generation:this.generation,x,y,action,button:action==='down'||action==='up'?e.button:0,delta});}
   releaseInput(){this.send({type:'release-input'});this.keys.clear();this.buttons.clear();}
   disconnect(message='Desktop disconnected.') {
-    this.releaseInput();this.send({type:'stop'});const socket=this.socket;this.socket=null;this.streamEpoch++;socket?.close();this.ready=false;this.generation=0;this.sequence=0;clearInterval(this.heartbeat);clearInterval(this.expiryTimer);this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.status(message);
+    const socket=this.socket;this.socket=null;this.streamEpoch++;
+    this.releaseInput();
+    if(socket?.readyState===WebSocket.OPEN){try{socket.send(this.encode({type:'release-input'}));socket.send(this.encode({type:'stop'}));}catch{}}
+    socket?.close();this.ready=false;this.generation=0;this.sequence=0;clearInterval(this.heartbeat);clearInterval(this.expiryTimer);this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.status(message);
   }
   destroy(){this.disconnect();this.controller.abort();}
   async connect(){
-    if(this.socket||!this.deviceID)return;
-    this.ready=false;this.sequence=0;this.generation=0;const epoch=++this.streamEpoch;this.status('Starting desktop…');
+    if(this.socket||this.connecting||!this.deviceID)return;
+    this.connecting=true;this.ready=false;this.sequence=0;this.generation=0;const epoch=++this.streamEpoch;this.status('Checking console session…');
+    try{const response=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});const session=await response.json();if(!response.ok||!session.authenticated){this.status('Sign in through the console, then reconnect.');this.connecting=false;return;}}catch{this.status('Unable to confirm the console session. Sign in again.');this.connecting=false;return;}
+    if(epoch!==this.streamEpoch){this.connecting=false;return;}
+    this.connecting=false;this.status('Starting desktop…');
     const url=new URL(`/api/devices/${encodeURIComponent(this.deviceID)}/desktop-v2`,location.href);url.protocol='wss:';
     const socket=this.socket=new WebSocket(url,'zireael-desktop-v2');socket.binaryType='arraybuffer';let queue=Promise.resolve();let queued=0;let lastSeen=Date.now();const opened=Date.now();
-    socket.onopen=()=>{this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>15000)this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,30-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
+    socket.onopen=()=>{this.heartbeat=setInterval(()=>{if(Date.now()-lastSeen>15000)this.disconnect('Desktop connection timed out.');else this.send({type:'ping',nonce:Math.floor(Date.now()/1000)>>>0});},5000);this.expiryTimer=setInterval(()=>{this.el('expiry').textContent=`Session expires in ${Math.max(0,20-Math.floor((Date.now()-opened)/60000))} min`;},1000);};
     socket.onmessage=event=>{lastSeen=Date.now();if(++queued>8){this.disconnect('Viewer could not keep up.');return;}queue=queue.then(async()=>{if(this.socket!==socket)return;await this.message(event.data,epoch);}).catch(()=>{if(this.socket===socket)this.disconnect('Invalid desktop response.');}).finally(()=>queued--);};
     socket.onerror=()=>{if(this.socket===socket)this.status('Desktop connection failed. Sign in again or refresh the device list.');};
     socket.onclose=()=>{if(this.socket===socket){const text=this.el('status').textContent;this.disconnect(this.errorStatus?text:'Desktop connection ended.');}};
