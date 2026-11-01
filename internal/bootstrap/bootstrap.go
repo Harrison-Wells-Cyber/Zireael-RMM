@@ -76,7 +76,14 @@ func (a *Artifact) Download(w http.ResponseWriter, r *http.Request) {
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-func Command(in agent.Invite, digest string) (string, error) {
+func Command(in agent.Invite, digest string, options ...string) (string, error) {
+	switches := ""
+	for _, option := range options {
+		if option != "-Uninstall" && option != "-Replace" {
+			return "", errors.New("unknown deployment option")
+		}
+		switches += " " + option
+	}
 	config, err := installerConfig(in, digest)
 	if err != nil {
 		return "", err
@@ -90,7 +97,7 @@ func Command(in agent.Invite, digest string) (string, error) {
 		"$sha=[Security.Cryptography.SHA256]::Create();",
 		"try { $hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','') } finally { $sha.Dispose() };",
 		"if ($hash -ne " + quote(digest) + ") { throw 'PowerShell package verification failed' };",
-		"& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes))) -Enrollment " + quote(config),
+		"& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes))) -Enrollment " + quote(config) + switches,
 		"}",
 	}, " "), nil
 }
@@ -132,13 +139,15 @@ func installCommand(in agent.Invite, digest, payload string, embedded bool) (str
 	arguments := quote("install --mode " + in.Mode)
 	enrollment := quote(config)
 	prefix := ""
+	writeInput := "$p.StandardInput.WriteLine(" + enrollment + "); $p.StandardInput.Close();"
 	if embedded {
-		prefix = "# Zireael-RMM Windows agent installer\nparam([string]$Enrollment=" + quote(config) + ")\n"
+		prefix = "# Zireael-RMM Windows agent installer\nparam([string]$Enrollment=" + quote(config) + ",[switch]$Uninstall,[switch]$Replace)\n"
 		prepare = "$invite=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Enrollment)) | ConvertFrom-Json; $mode=[string]$invite.mode; if (@('user','service','temporary') -cnotcontains $mode) { throw 'Invalid installation mode' };"
-		elevation = "if ($mode -eq 'service' -and -not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
+		elevation = "if (-not $Uninstall -and $mode -eq 'service' -and -not $elevated) { throw 'Open PowerShell as administrator for service installation' }; "
 		stage = "[IO.File]::WriteAllBytes($f,[Convert]::FromBase64String(" + quote(payload) + "));"
-		arguments = "('install --mode '+$mode)"
+		arguments = "$(if ($Uninstall) { 'uninstall --all' } else { 'install --mode '+$mode+$(if ($Replace) { ' --replace' } else { '' }) })"
 		enrollment = "$Enrollment"
+		writeInput = "if (-not $Uninstall) { $p.StandardInput.WriteLine($Enrollment) }; $p.StandardInput.Close();"
 	} else {
 		prepare = elevation + prepare
 		elevation = ""
@@ -164,7 +173,7 @@ func installCommand(in agent.Invite, digest, payload string, embedded bool) (str
 		"try {",
 		"if (-not $p.Start()) { throw 'Could not launch agent installer' };",
 		"$outTask=$p.StandardOutput.ReadToEndAsync(); $errTask=$p.StandardError.ReadToEndAsync();",
-		"$p.StandardInput.WriteLine(" + enrollment + "); $p.StandardInput.Close();",
+		writeInput,
 		"$p.WaitForExit();",
 		"$out=$outTask.GetAwaiter().GetResult(); $err=$errTask.GetAwaiter().GetResult();",
 		"if ($out) { Write-Host ($out.TrimEnd()) };",

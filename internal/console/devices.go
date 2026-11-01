@@ -28,6 +28,12 @@ func (c *Console) prepareInstaller() error {
 		c.publicPackage, c.publicErr = c.artifact.PowerShell(invite)
 		if c.publicErr == nil {
 			c.publicCommand, c.publicErr = bootstrap.Command(invite, c.publicPackage.SHA256)
+			if c.publicErr == nil {
+				c.publicUninstallCommand, c.publicErr = bootstrap.Command(invite, c.publicPackage.SHA256, "-Uninstall")
+			}
+			if c.publicErr == nil {
+				c.publicReplaceCommand, c.publicErr = bootstrap.Command(invite, c.publicPackage.SHA256, "-Replace")
+			}
 		}
 	})
 	return c.publicErr
@@ -46,7 +52,7 @@ func (c *Console) defaultCommand(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Installer unavailable")
 		return
 	}
-	reply(w, 200, map[string]any{"command": c.publicCommand, "architecture": c.artifact.Architecture})
+	reply(w, 200, map[string]any{"command": c.publicCommand, "uninstallCommand": c.publicUninstallCommand, "replaceCommand": c.publicReplaceCommand, "architecture": c.artifact.Architecture})
 }
 
 func (c *Console) approve(w http.ResponseWriter, r *http.Request) {
@@ -101,13 +107,18 @@ func (c *Console) invite(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Unable to create installer")
 		return
 	}
+	replacementCommand, err := bootstrap.Command(invitation, c.publicPackage.SHA256, "-Replace")
+	if err != nil {
+		fail(w, 500, "Unable to create replacement installer")
+		return
+	}
 	localCommand, err := bootstrap.LocalCommand(invitation, c.artifact.SHA256)
 	if err != nil {
 		fail(w, 500, "Unable to create installer")
 		return
 	}
 	// Fragments are not sent in HTTP request URLs or Referer headers.
-	reply(w, 201, map[string]any{"command": command, "localCommand": localCommand, "supportURL": c.origin + "/#invite=" + token, "expires": expires, "architecture": c.artifact.Architecture})
+	reply(w, 201, map[string]any{"command": command, "replaceCommand": replacementCommand, "localCommand": localCommand, "supportURL": c.origin + "/#invite=" + token, "expires": expires, "architecture": c.artifact.Architecture})
 }
 
 // supportInvite accepts only a pre-existing owner-created capability. It cannot

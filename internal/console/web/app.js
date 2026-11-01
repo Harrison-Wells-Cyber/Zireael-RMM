@@ -81,7 +81,7 @@ async function refreshSession() {
   $('auth-title').textContent = setupRequired ? 'Set up your console' : adminInvite ? 'Join the support team' : 'Welcome back';
   $('auth-description').textContent = setupRequired ? 'Enter the setup token created on your server, then register your first passkey.' : adminInvite ? 'Use this private invitation to create your own admin passkey.' : 'Enter your admin name, then use your security key, fingerprint, or device PIN.';
   $('signin').textContent = setupRequired ? 'Create your first passkey' : adminInvite ? 'Create my admin passkey' : 'Sign in with a passkey';
-  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('download-exe').hidden = true; $('download-ps1').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
+  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('replace-install-command').value = ''; $('download-exe').hidden = true; $('download-ps1').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
   return session;
 }
 
@@ -95,6 +95,7 @@ async function refresh() {
     packageAvailable = status.agentPackageAvailable;
     $('download-exe').hidden = !packageAvailable;
     $('download-ps1').hidden = !packageAvailable;
+ $('copy-replace-command').disabled=!packageAvailable;
     $('download-unavailable').hidden = packageAvailable;
     $('package-status').textContent = packageAvailable ? `Windows ${status.agentArchitecture === 'amd64' ? 'x64' : 'ARM64'} agent ready. Create a link for one device.` : 'Build a Windows agent and start the server with --agent-exe to enable installation commands.';
     $('create-invite').disabled = !packageAvailable;
@@ -135,7 +136,7 @@ async function perform(action) {
   for (const button of document.querySelectorAll('button')) button.disabled = true;
   try { await action(); await refresh(); }
   catch (error) { $('message').textContent = error.name === 'NotAllowedError' ? 'Passkey request cancelled or not approved. Try again when ready.' : error.message; }
-  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; }
+  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; $('copy-replace-command').disabled=!packageAvailable; }
 }
 
 async function refreshDevices() {
@@ -204,7 +205,7 @@ $('device-mode').addEventListener('change',() => {
 $('create-invite').addEventListener('click',() => perform(async () => {
   const result = await api('/api/invites',{name:$('device-name').value,mode:$('device-mode').value});
   $('install-command').value = result.command;
-  $('local-install-command').value = result.localCommand;
+  $('local-install-command').value = result.localCommand; $('replace-install-command').value = result.replaceCommand;
   $('support-link').value = result.supportURL;
   $('preview-link').href = result.supportURL;
   $('invite-expiry').textContent = `One device only. Enroll before ${new Date(result.expires).toLocaleString()}.`;
@@ -221,6 +222,10 @@ $('copy-link').addEventListener('click',() => perform(async () => {
 }));
 $('copy-command').addEventListener('click',() => perform(async () => {
   await navigator.clipboard.writeText($('install-command').value);
+}));
+$('copy-invite-replace').addEventListener('click',() => perform(async () => {await navigator.clipboard.writeText($('replace-install-command').value);}));
+$('copy-replace-command').addEventListener('click',() => perform(async () => {
+  const result=await api('/api/default-command');await navigator.clipboard.writeText(result.replaceCommand);$('message').textContent='Clean replacement command copied.';
 }));
 $('copy-local-command').addEventListener('click',() => perform(async () => {
   await navigator.clipboard.writeText($('local-install-command').value);

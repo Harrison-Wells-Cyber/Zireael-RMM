@@ -12,13 +12,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	project "github.com/Harrison-Wells-Cyber/Zireael-RMM"
@@ -27,7 +25,6 @@ import (
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/wire"
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -52,6 +49,11 @@ func Run(args []string) error {
 	case "desktop-worker":
 		return desktopWorker(args)
 	case "install":
+		release, err := maintenanceLock()
+		if err != nil {
+			return err
+		}
+		defer release()
 		return install(args)
 	case "run":
 		// Reattach output to the agent's own visible console after a child launch.
@@ -81,7 +83,12 @@ func Run(args []string) error {
 		}
 		return svc.Run(serviceName, &serviceHandler{})
 	case "uninstall":
-		return uninstall()
+		release, err := maintenanceLock()
+		if err != nil {
+			return err
+		}
+		defer release()
+		return uninstall(args)
 	default:
 		return errors.New("usage: agent [run | install --mode user|service|temporary | uninstall]")
 	}
@@ -90,11 +97,17 @@ func Run(args []string) error {
 func install(args []string) error {
 	f := flag.NewFlagSet("install", flag.ContinueOnError)
 	mode := f.String("mode", "user", "user (default), service, or temporary")
+	replace := f.Bool("replace", false, "remove the previous installation and enroll a new identity")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() != 0 || !state.ValidMode(*mode) {
 		return errors.New("invalid installation mode")
+	}
+	if *mode == "user" {
+		if err := checkStartupPolicy(); err != nil {
+			return err
+		}
 	}
 	machine := *mode == "service"
 	if machine && !windows.GetCurrentProcessToken().IsElevated() {
@@ -137,12 +150,60 @@ func install(args []string) error {
 		name += "-Temporary-" + hex.EncodeToString(random)
 	}
 	dir := filepath.Join(base, name)
+	if *replace {
+		current, e := os.Executable()
+		if e != nil {
+			return e
+		}
+		entries, e := installations()
+		if e != nil {
+			return e
+		}
+		for _, in := range entries {
+			if in.mode == *mode && samePath(current, filepath.Join(in.dir, installedExecutableName)) {
+				return errors.New("run clean replacement from the deployment command, outside the installed directory")
+			}
+		}
+		if err = removeInstallations(*mode, ""); err != nil {
+			return err
+		}
+	}
+	if *mode == "user" {
+		if err = checkStartupOwnership(filepath.Join(dir, installedExecutableName)); err != nil {
+			return err
+		}
+	}
+	if info, e := os.Lstat(dir); e == nil {
+		if !info.IsDir() {
+			return errors.New("installation path is not a directory")
+		}
+		return repairInstallation(dir, invite)
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
+	if machine {
+		exists, e := hasRegistration(installation{dir: dir, mode: "service", elevated: true})
+		if e != nil {
+			return e
+		}
+		if exists {
+			return errors.New("an older service registration remains; use clean replacement")
+		}
+	}
 	if err = createDirectory(dir, machine); err != nil {
 		return fmt.Errorf("create private installation directory (uninstall an existing installation first): %w", err)
 	}
 	committed := false
 	defer func() {
 		if !committed {
+			if cleanupErr := stopInstallation(dir, *mode); cleanupErr != nil {
+				fmt.Fprintln(os.Stderr, "Installation could not finish cleanup:", cleanupErr)
+				return
+			}
+			if *mode == "user" {
+				_ = removeStartup(filepath.Join(dir, installedExecutableName))
+			}
+			_ = removeUninstallEntry(dir, *mode)
 			_ = os.Remove(filepath.Join(dir, configName))
 			_ = os.Remove(filepath.Join(dir, installedExecutableName))
 			for _, name := range []string{"desktop-engine.exe", "desktop.js", "DESKTOP-NOTICES.txt"} {
@@ -162,6 +223,15 @@ func install(args []string) error {
 	executable := filepath.Join(dir, installedExecutableName)
 	if err = writeNew(executable, data); err != nil {
 		return err
+	}
+	// Complete local registration checks before consuming an enrollment invite.
+	if err = registerUninstaller(dir, *mode); err != nil {
+		return err
+	}
+	if *mode == "user" {
+		if err = addStartup(executable); err != nil {
+			return err
+		}
 	}
 	key, csr, err := identity.NewDeviceKey()
 	if err != nil {
@@ -195,21 +265,17 @@ func install(args []string) error {
 			return err
 		}
 	} else {
-		if *mode == "user" {
-			if err = addStartup(executable); err != nil {
-				return err
-			}
-		}
-		child := exec.Command(executable, "run")
-		// The user-mode agent runs in the background after installation and sign-in.
-		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
-		if err = child.Start(); err != nil {
+		if err = launchUserAgent(dir); err != nil {
 			if *mode == "user" {
 				_ = removeStartup(executable)
 			}
 			return err
 		}
-		_ = child.Process.Release()
+	}
+	if *mode == "user" {
+		if err = verifyStartup(executable); err != nil {
+			return err
+		}
 	}
 	committed = true
 	fmt.Printf("Zireael-RMM installed (%s): %s\n", *mode, executable)
@@ -220,46 +286,6 @@ func install(args []string) error {
 		fmt.Println("No startup entry was created. This process stops when support disconnects. Run the installed EXE again for a new session.")
 	}
 	return nil
-}
-
-func addStartup(executable string) error {
-	command := windows.EscapeArg(executable) + " run"
-	if len([]rune(command)) > 260 {
-		return errors.New("installation path is too long for Windows sign-in startup")
-	}
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		return err
-	}
-	defer key.Close()
-	if _, _, err = key.GetStringValue(serviceName); err == nil {
-		return errors.New("a Zireael-RMM startup entry already exists")
-	} else if !errors.Is(err, registry.ErrNotExist) {
-		return err
-	}
-	return key.SetStringValue(serviceName, command)
-}
-
-func removeStartup(executable string) error {
-	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE|registry.SET_VALUE)
-	if errors.Is(err, registry.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer key.Close()
-	value, _, err := key.GetStringValue(serviceName)
-	if errors.Is(err, registry.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if value != windows.EscapeArg(executable)+" run" {
-		return errors.New("startup entry points to another installation; it was not changed")
-	}
-	return key.DeleteValue(serviceName)
 }
 
 func installService(executable string) error {
@@ -277,7 +303,11 @@ func installService(executable string) error {
 		_ = service.Delete()
 		return err
 	}
-	if err = service.Start(); err != nil {
+	if err = service.Start(); err == nil {
+		err = waitServiceRunning(service)
+	}
+	if err != nil {
+		_ = stopInstallation(filepath.Dir(executable), "service")
 		_ = service.Delete()
 		return err
 	}
@@ -290,7 +320,12 @@ func load() (agent.Config, string, error) {
 	if err != nil {
 		return config, "", err
 	}
-	dir := filepath.Dir(executable)
+	return loadFrom(filepath.Dir(executable))
+}
+
+func loadFrom(dir string) (agent.Config, string, error) {
+	var config agent.Config
+	var err error
 	if err = noReparse(dir); err != nil {
 		return config, dir, err
 	}
@@ -401,99 +436,4 @@ func (*serviceHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, st
 			}
 		}
 	}
-}
-
-func uninstall() error {
-	config, dir, err := load()
-	if err != nil {
-		return err
-	}
-	executable := filepath.Join(dir, installedExecutableName)
-	if config.Mode == "service" {
-		if !windows.GetCurrentProcessToken().IsElevated() {
-			return errors.New("service removal requires an already elevated terminal")
-		}
-		manager, err := mgr.Connect()
-		if err != nil {
-			return err
-		}
-		defer manager.Disconnect()
-		service, err := manager.OpenService(serviceName)
-		if err != nil {
-			return err
-		}
-		defer service.Close()
-		current, err := service.Config()
-		if err != nil {
-			return err
-		}
-		if current.BinaryPathName != windows.EscapeArg(executable)+" service" {
-			return errors.New("service points to another installation; it was not changed")
-		}
-		_, _ = service.Control(svc.Stop)
-		deadline := time.Now().Add(20 * time.Second)
-		for {
-			state, err := service.Query()
-			if err != nil {
-				return err
-			}
-			if state.State == svc.Stopped {
-				break
-			}
-			if time.Now().After(deadline) {
-				return errors.New("service did not stop; files were not removed")
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if err = service.Delete(); err != nil {
-			return err
-		}
-	} else {
-		if config.Mode == "user" {
-			if err = removeStartup(executable); err != nil {
-				return err
-			}
-		}
-		name, err := eventName(config.DeviceID)
-		if err != nil {
-			return err
-		}
-		event, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
-		if err == nil {
-			err = windows.SetEvent(event)
-			windows.CloseHandle(event)
-			if err != nil {
-				return err
-			}
-		} else if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
-			return err
-		}
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			handle, openErr := windows.OpenEvent(windows.SYNCHRONIZE, false, name)
-			if errors.Is(openErr, windows.ERROR_FILE_NOT_FOUND) {
-				break
-			}
-			if openErr != nil {
-				return openErr
-			}
-			windows.CloseHandle(handle)
-			if time.Now().After(deadline) {
-				return errors.New("agent did not stop; identity was not removed")
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if err = os.Remove(filepath.Join(dir, configName)); err != nil {
-		return err
-	}
-	for _, name := range []string{"desktop-engine.exe", "desktop.js", "DESKTOP-NOTICES.txt"} {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	// The running uninstaller executable cannot be deleted on Windows. Its identity
-	// and startup entry are removed, leaving an inert file for ordinary deletion.
-	fmt.Printf("Support access removed. Close this process, then delete %s. Revoke the device in the console as well.\n", dir)
-	return nil
 }

@@ -32,12 +32,19 @@
       status.textContent = 'Press Ctrl+C to copy the selected command, then right-click in PowerShell to paste.';
     }
   });
+  document.getElementById('copy-uninstall-command').addEventListener('click', async () => {
+    const field=document.getElementById('uninstall-command');
+    try { await navigator.clipboard.writeText(field.value);document.getElementById('uninstall-status').textContent='Paste into PowerShell and press Enter.'; }
+    catch { field.focus();field.select();document.getElementById('uninstall-status').textContent='Press Ctrl+C to copy the selected command.'; }
+  });
   async function load() {
     try {
       const response = await fetch('/api/default-command', {cache:'no-store', credentials:'omit'});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Installer unavailable');
       defaultCommand = result.command;
+      document.getElementById('uninstall-command').value=result.uninstallCommand;
+      document.getElementById('copy-uninstall-command').disabled=!result.uninstallCommand;
       document.getElementById('platform').textContent = result.architecture === 'arm64' ? 'For Windows on ARM PCs' : 'For Windows x64 PCs';
       showDefault();
     } catch {

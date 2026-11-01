@@ -48,21 +48,23 @@ type clientLimit struct {
 }
 
 type Console struct {
-	store         *state.Store
-	wa            *webauthn.WebAuthn
-	sessions      *scs.SessionManager
-	origin        string
-	host          string
-	mu            sync.Mutex
-	pending       map[string]ceremony
-	limits        map[string]*clientLimit
-	limitOrder    *list.List
-	agents        *management.Service
-	artifact      *bootstrap.Artifact
-	publicOnce    sync.Once
-	publicCommand string
-	publicPackage *bootstrap.Package
-	publicErr     error
+	store                  *state.Store
+	wa                     *webauthn.WebAuthn
+	sessions               *scs.SessionManager
+	origin                 string
+	host                   string
+	mu                     sync.Mutex
+	pending                map[string]ceremony
+	limits                 map[string]*clientLimit
+	limitOrder             *list.List
+	agents                 *management.Service
+	artifact               *bootstrap.Artifact
+	publicOnce             sync.Once
+	publicCommand          string
+	publicUninstallCommand string
+	publicReplaceCommand   string
+	publicPackage          *bootstrap.Package
+	publicErr              error
 }
 
 // WithAgents is called during startup before serving requests.

@@ -51,3 +51,5 @@ main{padding:34px 20px 42px}.intro{font-size:16px}.eyebrow{font-size:9px;letter-
 .step{gap:13px;padding:23px 18px}.step-number{flex-basis:28px;height:28px}.step h2{font-size:17px}.step-heading>.small{display:none}
 .copy-row{gap:10px}.copy-row button{width:100%}.access-note{padding:18px}
 }
+
+.removal{display:block;margin-top:30px}.removal>summary{cursor:pointer;color:var(--pale-river);font-size:15px;font-weight:650}.removal p{font-size:13px;color:var(--text-muted);line-height:1.6}.removal textarea{width:100%;margin:12px 0}.removal button{font-size:13px}
