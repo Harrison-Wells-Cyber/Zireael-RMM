@@ -118,7 +118,7 @@ func runDesktop(ctx context.Context, stream net.Conn) error {
 	if len(sessions) == 0 {
 		return desktopFailure(stream, "no_interactive_session", "No signed-in interactive session is available.")
 	}
-	if e = desktop.Write(stream, desktop.Packet(desktop.Control{Type: "hello", Protocol: 2, Sessions: sessions, DefaultSession: def, ElevatedAvailable: systemAgent()})); e != nil {
+	if e = desktop.Write(stream, desktop.Packet(desktop.Control{Type: "hello", Protocol: 2, Sessions: sessions, DefaultSession: def, ElevatedAvailable: systemAgent(), ClipboardAvailable: true})); e != nil {
 		return e
 	}
 	start, e := desktop.AwaitStart(stream, 60*time.Second)

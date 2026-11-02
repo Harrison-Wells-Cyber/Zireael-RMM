@@ -136,7 +136,7 @@ async function perform(action) {
   for (const button of document.querySelectorAll('button')) button.disabled = true;
   try { await action(); await refresh(); }
   catch (error) { $('message').textContent = error.name === 'NotAllowedError' ? 'Passkey request cancelled or not approved. Try again when ready.' : error.message; }
-  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; $('copy-replace-command').disabled=!packageAvailable; }
+  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; $('copy-replace-command').disabled=!packageAvailable; if(typeof desktopViewer!=='undefined')desktopViewer?.updateClipboardControls(); }
 }
 
 async function refreshDevices() {

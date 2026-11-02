@@ -20,6 +20,13 @@ type Backend interface {
 	Close()
 	Elevated() bool
 }
+type ClipboardBackend interface {
+	ReadClipboard() (string, error)
+	WriteClipboard(string) error
+}
+
+var ErrClipboardTooLarge = errors.New("clipboard text exceeds transfer limit")
+
 type CaptureError struct {
 	Code string
 	Err  error
@@ -169,6 +176,7 @@ func Serve(ctx context.Context, conn net.Conn, start Control, b Backend) error {
 	}
 	nonce := uint32(0)
 	bandwidth := rate.NewLimiter(rate.Limit(1<<20), MaxFrame)
+	clipboardRate := rate.NewLimiter(2, 2)
 	for {
 		select {
 		case <-ctx.Done():
@@ -240,6 +248,52 @@ func Serve(ctx context.Context, conn net.Conn, start Control, b Backend) error {
 				}
 				settings = c
 				tick.Reset(time.Second / time.Duration(settings.MaxFPS))
+			case "clipboard-get", "clipboard-set":
+				action := "read"
+				if c.Type == "clipboard-set" {
+					action = "write"
+				}
+				response := Control{Type: "clipboard", Generation: c.Generation, Nonce: c.Nonce, Action: action}
+				clipboard, supported := b.(ClipboardBackend)
+				switch {
+				case !supported:
+					response.Code = "unsupported"
+					response.Message = "Update the Windows agent to use clipboard transfer."
+				case c.Generation != gen || !frameReady || lastError != "":
+					response.Code = "unavailable"
+					response.Message = "The desktop is not ready for clipboard transfer."
+				case action == "write" && settings.ViewOnly:
+					response.Code = "view_only"
+					response.Message = "Turn off View only to change the remote clipboard."
+				case !clipboardRate.Allow():
+					response.Code = "busy"
+					response.Message = "Wait a moment before another clipboard request."
+				default:
+					if action == "read" {
+						response.Text, err = clipboard.ReadClipboard()
+					} else {
+						err = clipboard.WriteClipboard(c.Text)
+					}
+					if err != nil {
+						response.Code = "unavailable"
+						response.Message = "Windows clipboard is unavailable. Try again."
+						if errors.Is(err, ErrClipboardTooLarge) {
+							response.Code = "too_large"
+							response.Message = "Clipboard text exceeds the 8 KiB transfer limit."
+						}
+						response.Text = ""
+					}
+				}
+				packet := Packet(response)
+				if len(response.Text) > MaxClipboard || len(packet) > HeaderSize+MaxControl {
+					response.Text = ""
+					response.Code = "too_large"
+					response.Message = "Clipboard text exceeds the 8 KiB transfer limit."
+					packet = Packet(response)
+				}
+				if err = write(packet); err != nil {
+					return err
+				}
 			case "pointer", "key", "text":
 				if c.Generation != gen || !frameReady || settings.ViewOnly || lastError != "" {
 					continue

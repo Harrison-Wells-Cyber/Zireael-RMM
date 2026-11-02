@@ -11,12 +11,14 @@ import (
 	"image/jpeg"
 	"io"
 	"net"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
 
 const HeaderSize = 12
 const MaxControl = 16 << 10
+const MaxClipboard = 8 << 10
 const MaxFrame = 8 << 20
 const MaxPixels = 16777216
 const Magic = "ZRD2"
@@ -46,42 +48,44 @@ func Dimensions(w, h, max uint32) bool {
 }
 
 type Control struct {
-	Type              string    `json:"type"`
-	Protocol          int       `json:"protocol,omitempty"`
-	Sessions          []Session `json:"sessions,omitempty"`
-	DefaultSession    *uint32   `json:"defaultSession,omitempty"`
-	ElevatedAvailable bool      `json:"elevatedAvailable,omitempty"`
-	SessionID         uint32    `json:"sessionID,omitempty"`
-	Privilege         string    `json:"privilege,omitempty"`
-	ViewOnly          bool      `json:"viewOnly,omitempty"`
-	MaxFPS            int       `json:"maxFPS,omitempty"`
-	MaxEdge           int       `json:"maxEdge,omitempty"`
-	Quality           int       `json:"quality,omitempty"`
-	Backend           string    `json:"backend,omitempty"`
-	State             string    `json:"state,omitempty"`
-	Code              string    `json:"code,omitempty"`
-	Message           string    `json:"message,omitempty"`
-	Elevated          bool      `json:"elevated,omitempty"`
-	Generation        uint32    `json:"generation,omitempty"`
-	Monitors          []Monitor `json:"monitors,omitempty"`
-	SelectedMonitor   uint32    `json:"selectedMonitor,omitempty"`
-	Sequence          uint32    `json:"sequence,omitempty"`
-	MonitorID         uint32    `json:"monitorID,omitempty"`
-	X                 int32     `json:"x,omitempty"`
-	Y                 int32     `json:"y,omitempty"`
-	Action            string    `json:"action,omitempty"`
-	Button            int       `json:"button,omitempty"`
-	Delta             int32     `json:"delta,omitempty"`
-	Down              bool      `json:"down,omitempty"`
-	Repeat            bool      `json:"repeat,omitempty"`
-	Text              string    `json:"text,omitempty"`
-	Nonce             uint32    `json:"nonce,omitempty"`
+	Type               string    `json:"type"`
+	Protocol           int       `json:"protocol,omitempty"`
+	Sessions           []Session `json:"sessions,omitempty"`
+	DefaultSession     *uint32   `json:"defaultSession,omitempty"`
+	ElevatedAvailable  bool      `json:"elevatedAvailable,omitempty"`
+	ClipboardAvailable bool      `json:"clipboardAvailable,omitempty"`
+	SessionID          uint32    `json:"sessionID,omitempty"`
+	Privilege          string    `json:"privilege,omitempty"`
+	ViewOnly           bool      `json:"viewOnly,omitempty"`
+	MaxFPS             int       `json:"maxFPS,omitempty"`
+	MaxEdge            int       `json:"maxEdge,omitempty"`
+	Quality            int       `json:"quality,omitempty"`
+	Backend            string    `json:"backend,omitempty"`
+	State              string    `json:"state,omitempty"`
+	Code               string    `json:"code,omitempty"`
+	Message            string    `json:"message,omitempty"`
+	Elevated           bool      `json:"elevated,omitempty"`
+	Generation         uint32    `json:"generation,omitempty"`
+	Monitors           []Monitor `json:"monitors,omitempty"`
+	SelectedMonitor    uint32    `json:"selectedMonitor,omitempty"`
+	Sequence           uint32    `json:"sequence,omitempty"`
+	MonitorID          uint32    `json:"monitorID,omitempty"`
+	X                  int32     `json:"x,omitempty"`
+	Y                  int32     `json:"y,omitempty"`
+	Action             string    `json:"action,omitempty"`
+	Button             int       `json:"button,omitempty"`
+	Delta              int32     `json:"delta,omitempty"`
+	Down               bool      `json:"down,omitempty"`
+	Repeat             bool      `json:"repeat,omitempty"`
+	Text               string    `json:"text,omitempty"`
+	Nonce              uint32    `json:"nonce,omitempty"`
 }
 
 var fields = map[string]string{
-	"hello": "protocol sessions defaultSession elevatedAvailable", "start": "sessionID privilege viewOnly maxFPS maxEdge quality backend",
+	"hello": "protocol sessions defaultSession elevatedAvailable clipboardAvailable", "start": "sessionID privilege viewOnly maxFPS maxEdge quality backend",
 	"status": "state code message backend elevated", "geometry": "generation monitors selectedMonitor", "ack": "sequence generation",
 	"select-monitor": "monitorID generation", "settings": "viewOnly maxFPS maxEdge quality backend", "pointer": "generation x y action button delta",
+	"clipboard-get": "generation nonce", "clipboard-set": "generation nonce text", "clipboard": "generation nonce action text code message",
 	"key": "generation code down repeat", "text": "generation text", "release-input": "", "ping": "nonce", "pong": "nonce", "stop": "",
 }
 
@@ -118,10 +122,10 @@ func ParseControl(data []byte, fromViewer bool) (Control, error) {
 			return c, ErrProtocol
 		}
 	}
-	if fromViewer && (c.Type == "hello" || c.Type == "status" || c.Type == "geometry") {
+	if fromViewer && (c.Type == "hello" || c.Type == "status" || c.Type == "geometry" || c.Type == "clipboard") {
 		return c, ErrProtocol
 	}
-	if !fromViewer && c.Type != "hello" && c.Type != "status" && c.Type != "geometry" && c.Type != "ping" && c.Type != "pong" {
+	if !fromViewer && c.Type != "hello" && c.Type != "status" && c.Type != "geometry" && c.Type != "ping" && c.Type != "pong" && c.Type != "clipboard" {
 		return c, ErrProtocol
 	}
 	switch c.Type {
@@ -189,6 +193,13 @@ func ParseControl(data []byte, fromViewer bool) (Control, error) {
 		}
 	case "key":
 		if c.Generation == 0 || !SupportedKey(c.Code) {
+			return c, ErrProtocol
+		}
+	case "clipboard-get", "clipboard-set", "clipboard":
+		if c.Generation == 0 || c.Nonce == 0 || len(c.Text) > MaxClipboard || strings.ContainsRune(c.Text, 0) {
+			return c, ErrProtocol
+		}
+		if c.Type == "clipboard" && (!word("read write", c.Action) || len(c.Code) > 64 || len(c.Message) > 256) {
 			return c, ErrProtocol
 		}
 	case "text":
