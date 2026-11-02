@@ -10,7 +10,7 @@
 - **Admin console:** individual passkeys, multiple admins, device approval and audit history.
 - **Outbound connections:** encrypted agent traffic; no port forwarding on supported computers.
 
-**Public preview.** The default Docker build includes the Windows x64 agent. Windows binaries are currently unsigned.
+Built because I wanted an easy and free way to provide remote support to family, and also demonstrate/purple team ClickFix to RMM attacks.
 
 ## Quick start
 
@@ -98,3 +98,8 @@ The launcher prints its log command. Agent traffic uses an encrypted inner TLS c
 ## License
 
 Original code is **[CC0](LICENSE)**. Dependencies retain their permissive licenses; see **[third-party notices](THIRD_PARTY_NOTICES.md)**.
+
+## Disclaimer
+
+This tool has utility which is inherently abusable. Never download an RMM agent from someone you do not trust.
+Please do not use this for actual crime against private individuals.
