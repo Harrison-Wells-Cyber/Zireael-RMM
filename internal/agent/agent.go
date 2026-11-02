@@ -115,6 +115,10 @@ func (c Config) Validate() error {
 // Session returns established=true after an authenticated inner connection was
 // established. Temporary agents stop if it ends, including a lost greeting.
 func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x509.CertPool, connected func(), handlers ...func(context.Context, net.Conn)) (established bool, err error) {
+	return session(ctx, config, hello, outerRoots, connected, nil, nil, handlers...)
+}
+
+func session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x509.CertPool, connected func(), save func(Config) error, notice func(string), handlers ...func(context.Context, net.Conn)) (established bool, err error) {
 	ctx, cancelSession := context.WithCancel(ctx)
 	defer cancelSession()
 	var workers sync.WaitGroup
@@ -147,9 +151,13 @@ func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x
 	if response.Type != "ready" || response.DeviceID != config.DeviceID {
 		return true, errors.New("unexpected server greeting")
 	}
+	// Handshake deadlines must not coincide with the first 15-second heartbeat.
+	// A stale WebSocket write timer can otherwise expire just as it is reset.
+	_ = conn.SetDeadline(time.Time{})
 	if connected != nil {
 		connected()
 	}
+	renewalDone := make(chan bool, 1)
 	readDone := make(chan error, 1)
 	readerStopped := make(chan struct{})
 	defer func() { cancelSession(); conn.Close(); <-readerStopped }()
@@ -161,6 +169,34 @@ func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x
 			var message wire.Control
 			if err := wire.Read(conn, &message); err != nil {
 				readDone <- err
+				return
+			}
+			if message.Type == "renewed" && message.DeviceID == "" && message.Ticket == "" && save != nil {
+				success := false
+				if len(message.Certificate) > 0 && len(message.Certificate) < 16<<10 {
+					updated := config
+					updated.Certificate = message.Certificate
+					if err := validateReplacement(config, updated); err == nil {
+						if err = save(updated); err == nil {
+							success = true
+						}
+					}
+				}
+				if notice != nil {
+					if success {
+						notice("Device certificate renewed")
+					} else {
+						notice("Certificate renewal could not complete; it will be retried")
+					}
+				}
+				select {
+				case renewalDone <- success:
+				default:
+				}
+				continue
+			}
+			if len(message.Certificate) != 0 {
+				readDone <- errors.New("unexpected certificate payload")
 				return
 			}
 			if message.Type == "open" && message.DeviceID == "" && len(message.Ticket) == 43 && len(handlers) == 1 {
@@ -192,6 +228,9 @@ func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x
 			}
 		}
 	}()
+	nextRenewal := time.Now()
+	renewalPending := false
+	renewalSaved := false
 	timer := time.NewTicker(15 * time.Second)
 	defer timer.Stop()
 	for {
@@ -200,9 +239,20 @@ func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x
 			return true, ctx.Err()
 		case err := <-readDone:
 			return true, err
+		case success := <-renewalDone:
+			renewalPending = false
+			renewalSaved = success
+			nextRenewal = time.Now().Add(time.Hour)
+			continue
 		case <-timer.C:
 		}
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if save != nil && !renewalSaved && !renewalPending && !time.Now().Before(nextRenewal) && renewalDue(config, time.Now()) {
+			if err = wire.Write(conn, wire.Control{Type: "renew"}); err != nil {
+				return true, err
+			}
+			renewalPending = true
+		}
 		if err = wire.Write(conn, wire.Control{Type: "ping"}); err != nil {
 			return true, err
 		}
@@ -210,15 +260,38 @@ func Session(ctx context.Context, config Config, hello wire.Hello, outerRoots *x
 }
 
 func Run(ctx context.Context, config Config, hello wire.Hello, status func(string), handlers ...func(context.Context, net.Conn)) error {
+	return RunWithPersistence(ctx, config, hello, status, nil, handlers...)
+}
+
+// RunWithPersistence saves a verified replacement before changing the in-memory
+// identity. The established connection can finish normally using its old cert.
+func RunWithPersistence(ctx context.Context, config Config, hello wire.Hello, status func(string), save func(Config) error, handlers ...func(context.Context, net.Conn)) error {
 	if status == nil {
 		status = func(string) {}
 	}
 	if err := config.Validate(); err != nil {
 		return err
 	}
+	var mu sync.Mutex
+	current := config
+	var persist func(Config) error
+	if save != nil {
+		persist = func(updated Config) error {
+			if e := save(updated); e != nil {
+				return e
+			}
+			mu.Lock()
+			current = updated
+			mu.Unlock()
+			return nil
+		}
+	}
 	delay := time.Second
 	for {
-		established, err := Session(ctx, config, hello, nil, func() { status("Connected to support server") }, handlers...)
+		mu.Lock()
+		snapshot := current
+		mu.Unlock()
+		established, err := session(ctx, snapshot, hello, nil, func() { status("Connected to support server") }, persist, status, handlers...)
 		if ctx.Err() != nil {
 			return nil
 		}

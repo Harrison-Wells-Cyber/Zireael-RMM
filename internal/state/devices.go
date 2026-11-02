@@ -18,23 +18,27 @@ const PendingLifetime = 24 * time.Hour
 const MaxPendingPerPeer = 4
 
 type Device struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Mode        string     `json:"mode"`
-	Certificate []byte     `json:"-"`
-	Fingerprint string     `json:"fingerprint"`
-	Created     time.Time  `json:"created"`
-	Expires     time.Time  `json:"expires"`
-	Revoked     *time.Time `json:"revoked,omitempty"`
-	Pending     bool       `json:"pending,omitempty"`
+	AgentVersion string     `json:"agentVersion,omitempty"`
+	AgentSHA256  string     `json:"agentSHA256,omitempty"`
+	Architecture string     `json:"architecture,omitempty"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Mode         string     `json:"mode"`
+	Certificate  []byte     `json:"-"`
+	Fingerprint  string     `json:"fingerprint"`
+	Created      time.Time  `json:"created"`
+	Expires      time.Time  `json:"expires"`
+	Revoked      *time.Time `json:"revoked,omitempty"`
+	Pending      bool       `json:"pending,omitempty"`
 }
 
 // Keep public device JSON separate from private persistence records.
 type deviceRecord struct {
-	Device      Device `json:"device"`
-	Certificate []byte `json:"certificate"`
-	KeyHash     string `json:"keyHash,omitempty"`
-	PeerHash    string `json:"peerHash,omitempty"`
+	Renewal     *renewalRecord `json:"renewal,omitempty"`
+	Device      Device         `json:"device"`
+	Certificate []byte         `json:"certificate"`
+	KeyHash     string         `json:"keyHash,omitempty"`
+	PeerHash    string         `json:"peerHash,omitempty"`
 }
 
 // PublicEnrollmentToken is a stable deployment identifier, not an authorization

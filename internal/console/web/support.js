@@ -5,8 +5,18 @@ function openSupport(device){
   $('support-name').textContent=device.name;
   $('close-support').textContent=device.mode==='temporary'?'End support session':'Close tools';
   $('support-privilege').textContent=device.mode==='service' ? 'Commands run as LocalSystem. Choose an interactive session for desktop.' : `Commands and files use ${device.details?.username || 'the agent user'}’s ${device.details?.elevated?'elevated':'standard user'} permissions.`;
-  $('support').hidden=false;showPage('detail');
+  $('support').hidden=false;renderAgentMaintenance();showPage('detail');
 }
+function renderAgentMaintenance(){
+ const device=selectedDevice;if(!device)return;
+ const active=updatingDevices.has(device.id)||['staging','queued','checking'].includes(device.update?.state);
+ $('agent-version').textContent=device.agentVersion?'Agent v'+device.agentVersion:'Agent version unknown';
+ $('agent-certificate').textContent='Device certificate expires '+new Date(device.expires).toLocaleDateString()+'. Renewal is automatic on current agents.';
+ $('agent-update-status').textContent=updatingDevices.has(device.id)?'Downloading and verifying the update…':device.update?.message||device.updateReason||'';
+ $('agent-update').disabled=active||!device.updateAvailable;
+ $('agent-update').textContent=active?'Updating…':'Update agent';
+}
+$('agent-update').onclick=()=>updateAgent(selectedDevice);
 function closeSupport(){
   commandAbort?.abort();fileAbort?.abort();disconnectDesktop();selectedDevice=null;
   $('support').hidden=true;$('command-output').textContent='';$('command-script').value='';$('command-status').textContent='';$('file-status').textContent='';

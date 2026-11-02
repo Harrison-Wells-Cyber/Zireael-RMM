@@ -24,6 +24,7 @@ type Artifact struct {
 	data         []byte
 	SHA256       string
 	Architecture string
+	Version      string
 }
 
 func Load(path string) (*Artifact, error) {
@@ -58,7 +59,7 @@ func Load(path string) (*Artifact, error) {
 		return nil, errors.New("only Windows amd64 or arm64 artifacts are supported")
 	}
 	hash := sha256.Sum256(data)
-	return &Artifact{data: data, SHA256: hex.EncodeToString(hash[:]), Architecture: arch}, nil
+	return &Artifact{data: data, SHA256: hex.EncodeToString(hash[:]), Architecture: arch, Version: artifactVersion(parsed)}, nil
 }
 
 func (a *Artifact) Download(w http.ResponseWriter, r *http.Request) {

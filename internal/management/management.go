@@ -13,9 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"encoding/hex"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/identity"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/tunnel"
+	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/version"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/wire"
 	"golang.org/x/time/rate"
 )
@@ -80,11 +82,7 @@ func New(store *state.Store) (*Service, error) {
 func (s *Service) CA() []byte { return append([]byte(nil), s.authority.PEM...) }
 
 func (s *Service) authorize(cert *x509.Certificate) error {
-	d, err := s.store.Device(cert.Subject.CommonName)
-	if err != nil || d.Revoked != nil || d.Pending || !time.Now().Before(d.Expires) || identity.Fingerprint(cert.Raw) != d.Fingerprint {
-		return state.ErrDenied
-	}
-	return nil
+	return s.store.AuthorizeCertificate(cert.Subject.CommonName, identity.Fingerprint(cert.Raw), time.Now())
 }
 
 func (s *Service) admit(w http.ResponseWriter) bool {
@@ -154,7 +152,12 @@ func (s *Service) allowEnroll(remote string) bool {
 }
 
 func validHello(h wire.Hello, d state.Device) bool {
-	return h.Version == wire.Version && h.Platform == "windows" && (h.Architecture == "amd64" || h.Architecture == "arm64") && h.Mode == d.Mode && len(h.Hostname) > 0 && len(h.Hostname) <= 256 && len(h.Username) <= 256
+	validBuild := h.AgentVersion == "" && h.AgentSHA256 == ""
+	if h.Version == wire.Version && version.Valid(h.AgentVersion) && len(h.AgentSHA256) == 64 {
+		_, e := hex.DecodeString(h.AgentSHA256)
+		validBuild = e == nil
+	}
+	return (h.Version == wire.Version || h.Version == wire.LegacyVersion) && validBuild && h.Platform == "windows" && (h.Architecture == "amd64" || h.Architecture == "arm64") && h.Mode == d.Mode && len(h.Hostname) > 0 && len(h.Hostname) <= 256 && len(h.Username) <= 256
 }
 
 func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +190,11 @@ func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		return
 	}
+	d, err = s.store.AcceptDeviceConnection(id, identity.Fingerprint(cert.Raw), hello.AgentVersion, hello.AgentSHA256, hello.Architecture, time.Now())
+	if err != nil {
+		s.mu.Unlock()
+		return
+	}
 	if old := s.active[id]; old != nil {
 		old.cancel()
 		closeConn(old.conn)
@@ -208,10 +216,33 @@ func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
 	if current.write(wire.Control{Type: "ready", DeviceID: id}) != nil {
 		return
 	}
+	controlRate := rate.NewLimiter(1, 5)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		var message wire.Control
-		if wire.Read(conn, &message) != nil || message.Type != "ping" || message.DeviceID != "" || message.Ticket != "" {
+		if wire.Read(conn, &message) != nil || !controlRate.Allow() || message.DeviceID != "" || message.Ticket != "" || len(message.Certificate) != 0 {
+			return
+		}
+		if message.Type == "renew" && hello.Version == wire.Version {
+			s.mu.Lock()
+			var replacement []byte
+			if s.active[id] == current {
+				replacement, err = s.store.PrepareRenewal(id, identity.Fingerprint(cert.Raw), time.Now(), func() ([]byte, string, time.Time, error) {
+					return s.authority.IssueDevice(id, &x509.CertificateRequest{PublicKey: cert.PublicKey})
+				})
+			} else {
+				err = state.ErrDenied
+			}
+			s.mu.Unlock()
+			if errors.Is(err, state.ErrDenied) {
+				return
+			}
+			if current.write(wire.Control{Type: "renewed", Certificate: replacement}) != nil {
+				return
+			}
+			continue
+		}
+		if message.Type != "ping" {
 			return
 		}
 		s.mu.Lock()

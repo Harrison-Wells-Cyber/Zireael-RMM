@@ -21,6 +21,7 @@ import (
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/management"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/servertls"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
+	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/version"
 )
 
 func main() {
@@ -31,6 +32,10 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Println("Zireael-RMM", version.Current())
+		return nil
+	}
 	if len(args) == 1 && args[0] == "licenses" {
 		fmt.Print(project.ThirdPartyNotices)
 		return nil

@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 let setupRequired = false;
 let busy = false;
 let packageAvailable = false;
+let agentUpdatePoll;
+const updatingDevices=new Set();
 let deviceLabels = new Map();
 let adminLabels = new Map();
 let currentAdminID = '';
@@ -10,7 +12,7 @@ let adminInvite = new URLSearchParams(location.hash.slice(1)).get('admin-invite'
 if (adminInvite) history.replaceState(null, '', '/admin');
 function eventLabel(action){
  const [kind,id]=action.split(':');
- const labels={'setup.created':'Setup token created','passkey.added':'Passkey registered','auth.login':'Signed in with a passkey','auth.logout':'Signed out','device.invite.created':'Support link created','device.enrolled':'Device enrolled','device.pending':'Approval requested','device.approved':'Device approved','device.rejected':'Device rejected','device.connected':'Device connected','device.disconnected':'Device disconnected','device.revoked':'Access revoked','device.session.ended':'Support session ended'};
+ const labels={'setup.created':'Setup token created','passkey.added':'Passkey registered','auth.login':'Signed in with a passkey','auth.logout':'Signed out','device.invite.created':'Support link created','device.enrolled':'Device enrolled','device.pending':'Approval requested','device.approved':'Device approved','device.rejected':'Device rejected','device.connected':'Device connected','device.disconnected':'Device disconnected','device.revoked':'Access revoked','device.session.ended':'Support session ended','device.certificate.renewed':'Device certificate renewed','device.update.requested':'Agent update requested','device.update.queued':'Agent update queued','device.update.failed':'Agent update failed'};
  let label=labels[kind];
  if(!label&&kind.startsWith('operation.')){const [,tool,state]=kind.split('.');label=({command:'PowerShell',upload:'Upload',download:'Download',desktop:'Desktop'}[tool]||tool)+' '+state;}
  return (label||kind)+(id?' · '+(deviceLabels.get(id)||id.slice(0,8)):'');
@@ -81,7 +83,7 @@ async function refreshSession() {
   $('auth-title').textContent = setupRequired ? 'Set up your console' : adminInvite ? 'Join the support team' : 'Welcome back';
   $('auth-description').textContent = setupRequired ? 'Enter the setup token created on your server, then register your first passkey.' : adminInvite ? 'Use this private invitation to create your own admin passkey.' : 'Enter your admin name, then use your security key, fingerprint, or device PIN.';
   $('signin').textContent = setupRequired ? 'Create your first passkey' : adminInvite ? 'Create my admin passkey' : 'Sign in with a passkey';
-  if (!session.authenticated) { if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('replace-install-command').value = ''; $('download-exe').hidden = true; $('download-ps1').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
+  if (!session.authenticated) { clearTimeout(agentUpdatePoll); if (typeof closeSupport === 'function') closeSupport(); showPage('agents'); $('installer').hidden = true; $('install-command').value = ''; $('local-install-command').value = ''; $('replace-install-command').value = ''; $('download-exe').hidden = true; $('download-ps1').hidden = true; $('support-link').value = ''; $('preview-link').removeAttribute('href'); }
   return session;
 }
 
@@ -93,11 +95,12 @@ async function refresh() {
 	refreshAdmins(admins);
     $('key-count').textContent = `${status.passkeys} registered ${status.passkeys === 1 ? 'passkey' : 'passkeys'}`;
     packageAvailable = status.agentPackageAvailable;
+    $('server-version').textContent=status.serverVersion?'· v'+status.serverVersion:'';
     $('download-exe').hidden = !packageAvailable;
     $('download-ps1').hidden = !packageAvailable;
  $('copy-replace-command').disabled=!packageAvailable;
     $('download-unavailable').hidden = packageAvailable;
-    $('package-status').textContent = packageAvailable ? `Windows ${status.agentArchitecture === 'amd64' ? 'x64' : 'ARM64'} agent ready. Create a link for one device.` : 'Build a Windows agent and start the server with --agent-exe to enable installation commands.';
+    $('package-status').textContent = packageAvailable ? `Windows ${status.agentArchitecture === 'amd64' ? 'x64' : 'ARM64'} agent${status.agentVersion?' v'+status.agentVersion:''} ready. Create a link for one device.` : 'Build a Windows agent and start the server with --agent-exe to enable installation commands.';
     $('create-invite').disabled = !packageAvailable;
     if (status.agentsEnabled) await refreshDevices();
     else $('devices').replaceChildren();
@@ -136,11 +139,13 @@ async function perform(action) {
   for (const button of document.querySelectorAll('button')) button.disabled = true;
   try { await action(); await refresh(); }
   catch (error) { $('message').textContent = error.name === 'NotAllowedError' ? 'Passkey request cancelled or not approved. Try again when ready.' : error.message; }
-  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; $('copy-replace-command').disabled=!packageAvailable; if(typeof desktopViewer!=='undefined')desktopViewer?.updateClipboardControls(); }
+  finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('create-invite').disabled = !packageAvailable; $('copy-replace-command').disabled=!packageAvailable; if(typeof desktopViewer!=='undefined')desktopViewer?.updateClipboardControls();if(typeof renderAgentMaintenance==='function')renderAgentMaintenance(); }
 }
 
 async function refreshDevices() {
   const devices = await api('/api/devices');
+  clearTimeout(agentUpdatePoll);
+  if(devices.some(d=>['staging','queued','checking'].includes(d.update?.state))||updatingDevices.size)agentUpdatePoll=setTimeout(()=>refreshDevices().catch(e=>{$('message').textContent=e.message;}),2000);
   deviceLabels = new Map(devices.map(device=>[device.id,device.name]));
   $('online-count').textContent = `${devices.filter(d=>d.online && !d.revoked).length} online`;
   $('pending-count').textContent = `${devices.filter(d=>d.pending && !d.revoked).length} awaiting approval`;
@@ -148,8 +153,8 @@ async function refreshDevices() {
   $('total-count').textContent = `${total} ${total === 1 ? 'device' : 'devices'}`;
   if (typeof selectedDevice !== 'undefined' && selectedDevice) {
     const current=devices.find(d=>d.id===selectedDevice.id);
-    if (!current || !current.online || current.revoked) { closeSupport(); showPage('agents'); }
-    else selectedDevice=current;
+    if (!current || current.revoked || !current.online&&!['staging','queued','checking'].includes(current.update?.state)) { closeSupport(); showPage('agents'); }
+    else {selectedDevice=current;if(typeof renderAgentMaintenance==='function')renderAgentMaintenance();}
   }
   const visible = devices.filter(device => !device.revoked || $('show-revoked').checked);
   if (!visible.length) {
@@ -167,7 +172,10 @@ async function refreshDevices() {
     info.textContent = `${device.revoked ? 'Revoked' : device.pending ? 'Awaiting approval' : device.online ? 'Online' : 'Offline'} · ${device.mode} mode`;
     if (device.pending) info.textContent += ` · Requested ${new Date(device.created).toLocaleString()} · ${device.id.slice(0,8)}`;
     if (device.details) info.textContent += ` · ${device.details.hostname} · ${device.details.elevated ? 'Elevated' : 'Standard user'}`;
-    description.append(name,info); row.append(description);
+    if(!device.pending){info.textContent+=' · '+(device.agentVersion?'v'+device.agentVersion:'Version unknown');if(device.updateAvailable)info.textContent+=' · Update available';}
+    description.append(name,info);
+    if(device.update){const update=document.createElement('p');update.className='device-update';update.textContent=device.update.message;description.append(update);}
+    row.append(description);
     if (!device.revoked) {
       const actions = document.createElement('div'); actions.className = 'device-actions';
       if (device.pending) {
@@ -193,6 +201,15 @@ async function refreshDevices() {
     }
     return row;
   }));
+}
+
+async function updateAgent(device){
+  if(!device||updatingDevices.has(device.id))return;
+  const admin=currentAdminID;updatingDevices.add(device.id);renderAgentMaintenance();
+  $('message').textContent='';
+  try{const result=await api(`/api/devices/${encodeURIComponent(device.id)}/update`,{});if(admin===currentAdminID)$('message').textContent='';}
+  catch(error){if(admin===currentAdminID)$('message').textContent=error.message;}
+  finally{updatingDevices.delete(device.id);if(admin===currentAdminID){await refreshDevices().catch(e=>{$('message').textContent=e.message;});renderAgentMaintenance();}}
 }
 
 $('device-mode').addEventListener('change',() => {

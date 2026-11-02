@@ -21,6 +21,7 @@ import (
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/bootstrap"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/management"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
+	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/version"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/weborigin"
 	"github.com/alexedwards/scs/v2"
 	"github.com/alexedwards/scs/v2/memstore"
@@ -48,6 +49,7 @@ type clientLimit struct {
 }
 
 type Console struct {
+	updates                map[string]*agentUpdate
 	store                  *state.Store
 	wa                     *webauthn.WebAuthn
 	sessions               *scs.SessionManager
@@ -170,6 +172,7 @@ func (c *Console) Handler() http.Handler {
 		m.HandleFunc("GET /api/devices", c.requireOwner(c.devices))
 		m.HandleFunc("GET /api/devices/{id}/desktop-v2", c.requireOwner(c.desktop))
 		m.HandleFunc("POST /api/devices/{id}/command", c.requireOwner(c.command))
+		m.HandleFunc("POST /api/devices/{id}/update", c.requireOwner(c.updateAgent))
 		m.HandleFunc("POST /api/devices/{id}/upload", c.requireOwner(c.upload))
 		m.HandleFunc("POST /api/devices/{id}/download", c.requireOwner(c.download))
 		m.HandleFunc("POST /api/invites", c.requireOwner(c.invite))
@@ -539,7 +542,11 @@ func (c *Console) status(w http.ResponseWriter, r *http.Request) {
 	if c.artifact != nil {
 		architecture = c.artifact.Architecture
 	}
-	reply(w, 200, map[string]any{"passkeys": len(u.Credentials), "stage": "Support preview", "agentsEnabled": c.agents != nil, "agentPackageAvailable": c.artifact != nil, "agentArchitecture": architecture, "adminName": u.WebAuthnName()})
+	packageVersion := ""
+	if c.artifact != nil {
+		packageVersion = c.artifact.Version
+	}
+	reply(w, 200, map[string]any{"serverVersion": version.Current(), "agentVersion": packageVersion, "passkeys": len(u.Credentials), "stage": "Support preview", "agentsEnabled": c.agents != nil, "agentPackageAvailable": c.artifact != nil, "agentArchitecture": architecture, "adminName": u.WebAuthnName()})
 }
 
 func (c *Console) audit(w http.ResponseWriter, r *http.Request) {

@@ -40,6 +40,9 @@ func installations() ([]installation, error) {
 	result := []installation{{filepath.Join(user, serviceName), "user", false}, {filepath.Join(programs, serviceName+"-User-"+token.User.Sid.String()), "user", true}, {filepath.Join(programs, serviceName), "service", true}}
 	for _, base := range []string{user, programs} {
 		entries, e := os.ReadDir(base)
+		if errors.Is(e, os.ErrNotExist) {
+			continue
+		}
 		if e != nil {
 			if samePath(base, programs) && errors.Is(e, os.ErrPermission) && !windows.GetCurrentProcessToken().IsElevated() {
 				continue

@@ -14,6 +14,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/installstate"
+	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/version"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -104,7 +105,7 @@ func registerUninstaller(dir, mode string) (err error) {
 	if mode == "temporary" {
 		label += " (temporary)"
 	}
-	for name, value := range map[string]string{"DisplayName": label, "Publisher": "Zireael-RMM", "DisplayVersion": "0.2.0", "DisplayIcon": filepath.Join(dir, installedExecutableName) + ",0", "InstallLocation": dir, "UninstallString": command} {
+	for name, value := range map[string]string{"DisplayName": label, "Publisher": "Zireael-RMM", "DisplayVersion": version.Current(), "DisplayIcon": filepath.Join(dir, installedExecutableName) + ",0", "InstallLocation": dir, "UninstallString": command} {
 		if e = key.SetStringValue(name, value); e != nil {
 			return e
 		}

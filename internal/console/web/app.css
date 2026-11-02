@@ -139,3 +139,9 @@ main:has(.app-shell:not([hidden])){max-width:1440px;padding-top:0}
 .desktop-page #desktop-canvas{max-height:calc(100vh - 340px)}
 .desktop-viewer:fullscreen #desktop-canvas{max-height:calc(100vh - 210px)}
 .desktop-viewer #desktop-scroll.actual-size #desktop-canvas{max-height:none;max-width:none}
+
+.agent-maintenance{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:16px;margin:18px 0;border:1px solid var(--border);border-radius:8px;background:var(--surface-inset)}
+.agent-maintenance p{margin:6px 0;font-size:13px;color:var(--text-subtle)}
+.agent-maintenance button{flex-shrink:0}
+.device-update{margin:6px 0;color:var(--pale-river);font-size:12px}
+@media(max-width:600px){.agent-maintenance{align-items:flex-start;flex-direction:column}}

@@ -14,7 +14,14 @@ func (c *Console) devices(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Devices unavailable")
 		return
 	}
-	reply(w, 200, devices)
+	views := make([]consoleDevice, 0, len(devices))
+	c.mu.Lock()
+	for _, d := range devices {
+		available, reason := c.updateAvailability(d)
+		views = append(views, consoleDevice{DeviceView: d, UpdateAvailable: available, UpdateReason: reason, Update: c.updateViewLocked(d)})
+	}
+	c.mu.Unlock()
+	reply(w, 200, views)
 }
 
 func (c *Console) prepareInstaller() error {

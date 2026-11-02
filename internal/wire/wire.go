@@ -10,7 +10,8 @@ import (
 )
 
 const MaxMessage = 64 << 10
-const Version = 1
+const LegacyVersion = 1
+const Version = 2
 
 type EnrollmentRequest struct {
 	Token    string `json:"token"`
@@ -27,6 +28,8 @@ type EnrollmentResponse struct {
 	Error       string `json:"error,omitempty"`
 }
 type Hello struct {
+	AgentVersion string `json:"agentVersion,omitempty"`
+	AgentSHA256  string `json:"agentSHA256,omitempty"`
 	Version      int    `json:"version"`
 	Hostname     string `json:"hostname"`
 	Username     string `json:"username"`
@@ -36,9 +39,10 @@ type Hello struct {
 	Elevated     bool   `json:"elevated"`
 }
 type Control struct {
-	Type     string `json:"type"`
-	DeviceID string `json:"deviceID,omitempty"`
-	Ticket   string `json:"ticket,omitempty"`
+	Certificate []byte `json:"certificate,omitempty"`
+	Type        string `json:"type"`
+	DeviceID    string `json:"deviceID,omitempty"`
+	Ticket      string `json:"ticket,omitempty"`
 }
 
 func Write(w io.Writer, value any) error {

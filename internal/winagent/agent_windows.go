@@ -23,6 +23,7 @@ import (
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/agent"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/identity"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/state"
+	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/version"
 	"github.com/Harrison-Wells-Cyber/Zireael-RMM/internal/wire"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -40,6 +41,19 @@ func Run(args []string) error {
 		command, args = args[0], args[1:]
 	}
 	switch command {
+	case "version", "--version":
+		if len(args) != 0 {
+			return errors.New("version accepts no arguments")
+		}
+		fmt.Println("Zireael-RMM", version.Current())
+		return nil
+	case "upgrade":
+		release, err := maintenanceLock()
+		if err != nil {
+			return err
+		}
+		defer release()
+		return upgrade(args)
 	case "licenses":
 		if len(args) != 0 {
 			return errors.New("licenses accepts no arguments")
@@ -90,7 +104,7 @@ func Run(args []string) error {
 		defer release()
 		return uninstall(args)
 	default:
-		return errors.New("usage: agent [run | install --mode user|service|temporary | uninstall]")
+		return errors.New("usage: agent [run | install --mode user|service|temporary | uninstall | upgrade | version]")
 	}
 }
 
@@ -358,7 +372,7 @@ func hello() wire.Hello {
 	if current, err := user.Current(); err == nil {
 		username = current.Username
 	}
-	return wire.Hello{Hostname: hostname, Username: username, Platform: "windows", Architecture: runtime.GOARCH, Elevated: windows.GetCurrentProcessToken().IsElevated()}
+	return wire.Hello{AgentVersion: version.Current(), AgentSHA256: version.BinarySHA256(), Hostname: hostname, Username: username, Platform: "windows", Architecture: runtime.GOARCH, Elevated: windows.GetCurrentProcessToken().IsElevated()}
 }
 
 func eventName(id string) (*uint16, error) {
@@ -398,7 +412,7 @@ func runUser(ctx context.Context, config agent.Config) error {
 			}
 		}
 	}()
-	err = agent.Run(ctx, config, hello(), func(message string) { fmt.Println(message) }, operationHandler().Serve)
+	err = agent.RunWithPersistence(ctx, config, hello(), func(message string) { fmt.Println(message) }, saveRenewedIdentity, operationHandler().Serve)
 	cancel()
 	<-waitDone
 	return err
@@ -415,7 +429,9 @@ func (*serviceHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, st
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- agent.Run(ctx, config, hello(), nil, operationHandler().Serve) }()
+	go func() {
+		done <- agent.RunWithPersistence(ctx, config, hello(), nil, saveRenewedIdentity, operationHandler().Serve)
+	}()
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for {
 		select {
