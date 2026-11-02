@@ -1,10 +1,20 @@
-# Zireael-RMM
+<p align="center">
+  <img src="internal/console/web/swallow.png" width="88" alt="Zireael-RMM swallow">
+</p>
+<h1 align="center">Zireael-RMM</h1>
+<p align="center">Self-hosted remote support for Windows, written in Go.<br>Linux server · Windows agent · Passkey-protected web console</p>
+<p align="center"><a href="#quick-start">Quick start</a> · <a href="#connect-a-computer">Connect a computer</a> · <a href="#updates-and-removal">Updates</a> · <a href="#configuration">Configuration</a></p>
 
-A self-hosted remote support tool for family and personal use. The Linux server provides a passkey-protected web console; a single Windows agent executable provides remote desktop, PowerShell, and file transfers. **Preview:** PowerShell and file transfers have passed an initial Windows test. Remote desktop now uses a built-in Go engine with a pop-out/fullscreen browser viewer.
+- **Remote desktop:** monitor selection, view-only, clipboard, pop-out and fullscreen.
+- **PowerShell and files:** run commands and transfer files up to 1 GiB.
+- **Admin console:** individual passkeys, multiple admins, device approval and audit history.
+- **Outbound connections:** encrypted agent traffic; no port forwarding on supported computers.
 
-## Run the server
+**Public preview.** The default Docker build includes the Windows x64 agent. Windows binaries are currently unsigned.
 
-Install Docker and the Docker Compose plugin on a Linux host. Point a domain at that host and allow inbound TCP **8443**. For a new Let's Encrypt certificate, also route public TCP **80** to the host. Then run:
+## Quick start
+
+You need **Linux**, **Git**, **Docker with the Compose plugin**, and a domain pointing to your server. Allow TCP **8443**, plus TCP **80** for Let's Encrypt certificate issuance and HTTP-01 renewal.
 
 ```sh
 git clone https://github.com/Harrison-Wells-Cyber/Zireael-RMM.git
@@ -12,32 +22,79 @@ cd Zireael-RMM
 ./start.sh --domain support.example.com
 ```
 
-Replace `support.example.com` with your domain. The script builds the image, checks settings, starts the container, and prints a one-time setup token. Open `https://YOUR-DOMAIN:8443/admin`, enter the token within 15 minutes, and register a passkey. Add a second passkey for recovery. Further administrators can be invited from **Users**; each registers their own passkey. Docker restarts the container and retains its data volume. Keep the same project directory and Docker volume when updating.
+Replace the domain. Use `sudo` if your account needs it for Docker. The launcher builds everything, configures HTTPS, and prints your setup token.
 
-The launcher accepts `--bind` and `--port` for a different public listener, and `--origin` when the browser uses a different HTTPS origin (for example, through a reverse proxy). Run `./start.sh --help` for all flags. It checks existing Certbot or app-cached certificates before opening the HTTP challenge port. A cached certificate still needs port 80 for later HTTP-01 renewal unless you route public 443 for TLS-ALPN renewal. External certificate managers can be used with `--tls-cert` and `--tls-key`, optionally `--cert-dir` for symlinked certificate trees; supplied files must be readable by container UID 65532. For root-only Certbot keys, copy the certificate and key to a protected directory readable by that UID and pass `--cert-dir`; refresh those copies after renewal. Files are reloaded on new TLS handshakes. Other compatible ACME issuers can be selected with `--acme-directory`.
+1. Open **`https://support.example.com:8443/admin`**.
+2. Enter the token within **15 minutes** and register a passkey.
+3. Add a spare passkey under **Users**. Invite other admins there; all admins have full control.
 
-## Help someone
+Keep and back up the Docker volume mounted at `/data`. It stores your accounts, devices and deployment keys.
 
-Send them the public homepage, `https://YOUR-DOMAIN:8443/`. It always shows the default one-line PowerShell command. They paste it into ordinary PowerShell. In **Agents**, click **Approve device** beside the pending computer within 24 hours, then click the online device to use desktop, PowerShell, or files. The default installation needs no elevation and reconnects when that Windows user signs in.
+## Connect a computer
 
-The default command downloads a verified PowerShell package with the agent EXE embedded inside it. It extracts, verifies and installs the agent, then removes the temporary installer. You can also download this `.ps1` from **Agent downloads** for a default user installation.
+1. Send the person **`https://support.example.com:8443/`**.
+2. They open ordinary PowerShell and paste the command shown there.
+3. In **Agents**, click **Approve device** within 24 hours, then open the online computer.
 
-For access before sign-in, create a private **service** support link in the console and have the person run its command in an already elevated PowerShell. For one session with no persistence, create a **temporary** link instead. Each private link is single-use and expires after 15 minutes. For a direct EXE download, use **Agent downloads** in the console, create a support link, then expand **Install from a downloaded EXE** for its installation command.
+The default installer is a verified `.ps1` containing the EXE. It installs for the current user without an elevation prompt and starts at Windows sign-in.
 
-**Update agents:** open an online agent and click **Update agent**. The console downloads and verifies this server’s configured agent package on that machine, preserves its identity and approval, and confirms the exact new build after it reconnects. Updates use the agent’s existing account and privileges, require a recent admin passkey sign-in, and need local Windows CIM/WMI. The package must match the agent’s architecture. Update the server first; older agents can still connect and use the same command-based update path. A failed repair reports an error instead of enrolling a replacement.
+Create a **support link** in the console to choose another mode:
 
-**Repair manually:** rerun the normal installation command. A matching installation keeps its device identity and approval while the executable, startup settings and uninstall entry are refreshed. Installation explicitly enables and checks Windows sign-in startup; later changes in Windows Startup Apps are respected.
+| Mode | Available | Install using |
+| --- | --- | --- |
+| **User — default** | While the user is signed in and online | Ordinary PowerShell |
+| **Service** | While Windows is running and online | Elevated PowerShell |
+| **Temporary** | Until the support connection ends | Ordinary PowerShell |
 
-**Uninstall:** open Windows **Settings → Apps → Installed apps**, find **Zireael-RMM**, and choose **Uninstall**. For older builds, the public homepage has a **Remove the support app** section with a one-paste removal command. Service and other administrator-installed copies require elevation. Removal stops the agent and deletes its installation files, identity, service/startup registrations, saved startup approval, uninstall entry and old installer staging files.
+Service commands run as LocalSystem; remote desktop needs a signed-in session. Personal links are single-use and expire after **15 minutes**. Direct downloads are under **Agent downloads**; use the generated installation command for the EXE.
 
-**Start fresh:** if an old identity is damaged or was revoked, use the clean replacement command in the console. The support-link version preserves your selected user/service/temporary mode; the general Agent downloads option replaces the default user installation. A downloaded PS1 also accepts `-Replace` or `-Uninstall`. Clean replacement creates a new identity, so approve it and revoke the previous device entry. Keep the server data volume when updating the server.
+## Updates and removal
 
-The command shown in a browser must itself be trusted: TLS inspection that can alter the page can alter the command. The agent's encrypted inner connection protects subsequent agent traffic through TLS inspection, but cannot authenticate a replaced installer command. Admin browser traffic also requires a trusted HTTPS path.
+Update the server first, keeping the same directory, data volume and startup options:
 
-## Status and licensing
+```sh
+git pull
+./start.sh --domain support.example.com
+```
 
-The server, web console, agent transport, and Windows cross-builds have been checked locally. The Go desktop engine uses DXGI capture with GDI fallback, monitor/session selection, keyboard/mouse input, and view-only mode. The Clipboard panel in both desktop views sends and retrieves text (up to 8 KiB), with a button to copy retrieved text to your own clipboard. Basic Windows support is working in the first operator test; service sessions, reconnects, and varied display setups still need broader testing. Agent certificates last one year and renew automatically during their final 90 days over the authenticated inner TLS connection. The private key stays on the agent. A replacement is saved atomically, and the previous certificate remains usable until the replacement reconnects successfully. An agent offline beyond certificate expiry needs clean replacement. The deployment CA has a separate ten-year lifetime. The Windows EXE includes the swallow icon and product metadata. Binaries are not code-signed. Agent binary updates are explicitly started by an admin; account recovery currently relies on a second passkey or protected backups.
+Agents reconnect after the server restarts. Temporary agents must be started again.
 
-Application versions appear in the console and in `server version` / `ZireaelRMM.exe version`. `internal/version/VERSION` is the version source; after changing it, run `go generate ./cmd/agent` to refresh the committed Windows resources before building. Updates compare both the semantic version and binary hash, so rebuilt packages are distinguishable without a GitHub release.
+- **Update an agent:** open it and click **Update agent**. Updates verify the package and preserve identity and approval. They require a recent admin sign-in and local Windows CIM/WMI. Older agents use the same command-based update path.
+- **Repair:** rerun the normal installation command.
+- **Uninstall:** Windows **Settings → Apps → Installed apps → Zireael-RMM**, or **Remove the support app** on the public homepage.
+- **Start fresh:** use the console's **clean replacement** command, approve the new identity, and revoke the old entry.
 
-Original project code is [CC0](LICENSE). Dependencies use permissive licenses and retain their required notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). These texts are also embedded in both binaries; `server licenses` or `ZireaelRMM.exe licenses` prints them.
+Agent certificates renew automatically. Devices offline beyond certificate expiry need clean replacement.
+
+## Configuration
+
+Use startup flags; no `.env` editing is required. **`./start.sh --help`** lists every option.
+
+<details>
+<summary>Ports, certificates and reverse proxies</summary>
+
+Use HTTPS port 443:
+
+```sh
+./start.sh --domain support.example.com --port 443
+```
+
+Supply your own `fullchain.pem` and `privkey.pem`:
+
+```sh
+./start.sh --domain support.example.com --cert-dir /srv/zireael-certs
+```
+
+Certificate files must be readable by container UID **65532**. Mount the complete tree for symlinked certificates. Renewed files reload on new connections.
+
+Existing Certbot and cached certificates are checked first. Cached certificates can allow startup without port 80; rerun with **`--http-port 80`** when built-in HTTP-01 renewal needs it. Public port 80 must reach the challenge listener. TLS-ALPN renewal requires public port 443 routed to the app. Supplied certificates need no ACME port.
+
+Other options: **`--bind`** for the host address, **`--origin`** for the exact public HTTPS origin, and **`--acme-directory`** for another issuer. Reverse proxies must support WebSockets and long-running transfers.
+
+</details>
+
+The launcher prints its log command. Agent traffic uses an encrypted inner TLS channel through inspected HTTPS; the admin browser and initial installation command still require a trusted HTTPS path.
+
+## License
+
+Original code is **[CC0](LICENSE)**. Dependencies retain their permissive licenses; see **[third-party notices](THIRD_PARTY_NOTICES.md)**.
